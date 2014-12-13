@@ -11,8 +11,7 @@ def CreateOptions():
     parser.add_argument("-i", dest="input", help="The input sequence", required=True, metavar="seq.fasta")
     parser.add_argument("-o", dest="output", help="The file to write tab-delimited k-mer counts", required=True, metavar="counts.tsv")
     parser.add_argument("-k", help="The length of the oligonucleotides to count", required=True, type=int)
-    fmt.add_argument("-f", dest="fa_flag", help="Specifying the input sequence is in FASTA format [DEFAULT]", action='store_true', default=True)
-    fmt.add_argument("-s", dest="bare", help="Denote that the file contains a single sequence, not preceded by a header", action="store_true")
+    fmt.add_argument("-s", dest="bare", help="Denote that the file contains a single sequence, not in FASTA format", action="store_true")
     parser.add_argument("-m", help="If included, contig-wise k-mer counts will be returned opposed to k-mer frequencies for the whole file", action="store_true", default=False)
     args = parser.parse_args()
     return args
@@ -20,39 +19,20 @@ def CreateOptions():
 def PatternToNumber(pattern):
     """Returns a number representing the position of pattern
     of length k in an array of all permutations of k-mers"""
-    count = n = 0
     k = len(pattern)
-    c = (k - 1)
-    while (c >= 0):
-        factor = (4 ** n)
-        if pattern[c] == "A":
-            count += (0 * factor)
-        if pattern[c] == "C":
-            count += (1 * factor)
-        if pattern[c] == "G":
-            count += (2 * factor)
-        if pattern[c] == "T":
-            count += (3 * factor)
-        c = (c - 1)
-        n += 1
-    return count
-
-#Algorithm from Coursera:
-#def PatternToNumber(pattern):
-#    k = len(pattern)
-#    if ( k == 0 ):
-#        return 0    
-#    symbol = pattern[k - 1]
-#    prefix = pattern[0:(k - 1)]
-#    if symbol == "A":
-#        count = 0
-#    if symbol == "C":
-#        count = 1
-#    if symbol == "G":
-#        count = 2
-#    if symbol == "T":
-#        count = 3
-#    return 4 * PatternToNumber(prefix) + count
+    if ( k == 0 ):
+        return 0    
+    symbol = pattern[k - 1]
+    prefix = pattern[0:(k - 1)]
+    if symbol == "A":
+        count = 0
+    if symbol == "C":
+        count = 1
+    if symbol == "G":
+        count = 2
+    if symbol == "T":
+        count = 3
+    return 4 * PatternToNumber(prefix) + count
 
 def NumberToPattern(freq_array, num):
     """Finds the k-mer at position num in array
@@ -101,32 +81,6 @@ def format_fasta(fileIn):
         line = fileIn.readline()
     return fasta
 
-#def FindingFrequentWordsBySorting(fasta, k):
-#    FrequentPatterns = list()
-#    index = list()
-#    count = list()
-#    i = 0
-#    n = k
-#    for header in fasta:
-#        while (n <= len(fasta[header])):
-#            oligo = fasta[header][i:n]
-#            index[i] = PatternToNumber(oligo)
-#            count[i] = 1
-#            n += 1
-#            i += 1
-#        SortedIndex = index.sort()
-#        i = 0
-#        for kmer in SortedIndex:
-#            if (SortedIndex[i] == SortedIndex[i-1]):
-#                count[i] = count[i-1] + 1
-#        i = 0
-#        maxCount = max(count)
-#        while (i < (4**k)):
-#            if (count[i] == maxCount):
-#                pattern = NumberToPattern(SortedIndex[i], k)
-#                FrequentPatterns.append(pattern)
-#        return FrequentPatterns
-
 def writeCounts(output, count_array):
     """Output the k-mer counts in a matrix format"""
     with open(output, 'w') as outF:
@@ -167,4 +121,3 @@ def main():
                 outF.write(kmer+"\t"+str(count_array[kmer])+"\n")
         
 main()
-
