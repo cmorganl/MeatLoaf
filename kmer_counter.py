@@ -7,11 +7,10 @@ import argparse
 
 def CreateOptions():
     parser = argparse.ArgumentParser()
-    fmt = parser.add_mutually_exclusive_group()
     parser.add_argument("-i", dest="input", help="The input sequence", required=True, metavar="seq.fasta")
     parser.add_argument("-o", dest="output", help="The file to write tab-delimited k-mer counts", required=True, metavar="counts.tsv")
     parser.add_argument("-k", help="The length of the oligonucleotides to count", required=True, type=int)
-    fmt.add_argument("-s", dest="bare", help="Denote that the file contains a single sequence, not in FASTA format", action="store_true")
+    parser.add_argument("-s", dest="bare", help="Denote that the file contains a single sequence, not in FASTA format", action="store_true")
     parser.add_argument("-m", help="If included, contig-wise k-mer counts will be returned opposed to k-mer frequencies for the whole file", action="store_true", default=False)
     args = parser.parse_args()
     return args
@@ -95,6 +94,9 @@ def writeCounts(output, count_array):
             outF.write("\t".join(line) + "\n")
 
 def main():
+    pass
+ 
+if __name__ == '__main__':
     args = CreateOptions()
     fasta = dict()
     with open(args.input) as fileIn:
@@ -119,5 +121,5 @@ def main():
             sort_kmers = sorted(count_array.keys())
             for kmer in sort_kmers:
                 outF.write(kmer+"\t"+str(count_array[kmer])+"\n")
-        
+   
 main()
