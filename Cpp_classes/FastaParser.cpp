@@ -11,7 +11,7 @@ FastaParser::FastaParser( char * input ) {
 
 int FastaParser::record_header( string line, int line_len, int * header_Nchar ) {
     * header_Nchar += line_len;
-    header = (char **) realloc (header, * header_Nchar * sizeof(char *));
+    header = (char **) realloc (header, * header_Nchar * sizeof(char));
     header[N_contigs] = (char *) malloc (line_len * sizeof(char));
     strcpy( header[N_contigs], line.c_str());
     sequence[N_contigs] = NULL;
@@ -20,7 +20,7 @@ int FastaParser::record_header( string line, int line_len, int * header_Nchar ) 
 
 int FastaParser::record_sequence( string line, int line_len) {
     genome_length += line_len - 2;
-    sequence = (char **) realloc (sequence, (genome_length + N_contigs) * sizeof(char *));
+    sequence = (char **) realloc (sequence, (genome_length + N_contigs) * sizeof(char));
     if ( sequence[N_contigs - 1] == NULL) {
         sequence[N_contigs - 1] = (char *) malloc (line_len * sizeof(char));
         strcpy(sequence[N_contigs - 1], line.c_str());
@@ -57,7 +57,6 @@ int FastaParser::parse_fasta() {
             }
         }
         getline( *fasta_file, line );
-        N_contigs = N_contigs - 1;
     }
     return 0; 
 }

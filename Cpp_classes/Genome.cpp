@@ -7,12 +7,12 @@ Genome::Genome() {
     genome_length = 0;
     N_contigs = 0;
 }
-
+/*
 Genome::~Genome () {
     free(header);
     free(sequence);
 }
-
+*/
 int Genome::find_longest_contig() {
     int x;
     int size = 0;

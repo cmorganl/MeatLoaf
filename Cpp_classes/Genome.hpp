@@ -13,7 +13,7 @@ class Genome {
     protected:
         int longest_contig;
         Genome();
-        ~Genome();
+//        ~Genome();
         virtual int record_header( string, int , int* ) =0;
         virtual int record_sequence( string, int ) =0; 
     public:
