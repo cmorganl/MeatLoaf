@@ -75,11 +75,11 @@ def Nsplit_scaffolds(subset):
                     contig_name = head + "_" + str(acc)
                     acc += 1
                     unambiguous_subset[contig_name] = c
-                    #sys.stderr.write(c)
         else:
             contig_name = head + "_" + str(acc)
             acc += 1
             unambiguous_subset[contig_name] = subset[head]
+	acc = 1
     return unambiguous_subset
 
 def main():
