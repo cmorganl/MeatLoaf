@@ -12,8 +12,10 @@ def set_arguments():
     parser.add_argument("-o", "--output", help="The output fasta file [DEFAULT = subset.fasta]", required=False, default="subset.fasta")
     parser.add_argument("-N", "--Nsplit", help="Split the contigs on ambiguity character 'N's [DEFAULT = False]", \
                         default=False, action="store_true")
-    extract.add_argument("-s", "--slice", help="Flag indicating a specific sequence should be extracted from a specific header. \
-                         The headers to be used for extraction will be pulled from the provided list", required=False, action="store_true")
+    parser.add_argument("-m", "--minLength", help="The minimum contig length. Contigs are not length-filtered by default.", \
+                        required=False, default=0, type=int)
+    extract.add_argument("-s", "--slice", help="Flag indicating a specific sequence should be extracted from a specific header." ,\
+                         required=False, action="store_true")
     extract.add_argument("-p", "--pos", help="Positions (start,end) of the provided contig to extract", required=False)
     args = parser.parse_args()
     return args
@@ -30,6 +32,8 @@ def subset_fasta(fasta, headers):
         while line:
             if ( line[0] == '>' ):
                 header = line[1:].strip()
+                if headers[0] == "all":
+                    headers.append(header)
                 if header in headers:
                     subset[header] = ""
                     add = 1
@@ -82,28 +86,38 @@ def Nsplit_scaffolds(subset):
         acc = 1
     return unambiguous_subset
 
+def slice_contigs(subset, pos):
+    contigs = dict()
+    for contig in subset:
+        seq = extract_seq(subset[contig], pos)
+        contigs[contig] = seq
+    return sorted(contigs)
+
+def write_subset_to_output(subset, output, minLength):
+    ordered_headers = sorted(subset.keys())
+    with open(output, 'w') as fa_out:
+        for contig in ordered_headers:
+            if (len(subset[contig]) > minLength):
+                fa_out.write('>' + str(contig) + "\n")
+                fa_out.write(subset[contig] + "\n")
+    return 0
+
 def main():
     print "Beginning", sys.argv[0]
     args = set_arguments()
-    headers = load_list(args.list)
+    headers = ["all"]
+    if args.list != "all":
+        headers = load_list(args.list)
     print "Finding the sequences in", args.list
     subset = subset_fasta(args.fasta, headers)
     if args.Nsplit:
         print "Splitting the sequences on 'N's..."
         subset = Nsplit_scaffolds(subset)
-    ordered_subset = sorted(subset)
     if args.slice:
-        with open(args.output, 'w') as fa_out:
-            for contig in ordered_subset:
-                seq = extract_seq(subset[contig], args.pos)
-                fa_out.write('>' + str(contig) + '\n')
-                fa_out.write(str(seq) + "\n")
-    else:
-        print "Writing subset to", args.output
-        with open(args.output, 'w') as fa_out:
-            for contig in ordered_subset:
-                fa_out.write('>' + str(contig) + "\n")
-                fa_out.write(subset[contig] + "\n")
+        subset = slice_contigs(subset, args.slice, args.pos)
+    print "Writing the contig subset to", args.output
+    write_subset_to_output(subset, args.output, args.minLength)
+
     return 0
 
 main()
