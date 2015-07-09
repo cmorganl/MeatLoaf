@@ -12,8 +12,8 @@ def set_arguments():
     parser.add_argument("-o", "--output", help="The output fasta file [DEFAULT = subset.fasta]", required=False, default="subset.fasta")
     parser.add_argument("-N", "--Nsplit", help="Split the contigs on ambiguity character 'N's [DEFAULT = False]", \
                         default=False, action="store_true")
-    parser.add_argument("-m", "--minLength", help="The minimum contig length. Contigs are not length-filtered by default.", \
-                        required=False, default=0, type=int)
+    parser.add_argument("-m", "--minLength", help="The minimum contig length [DEFAULT = 200].", \
+                        required=False, default=200, type=int)
     extract.add_argument("-s", "--slice", help="Flag indicating a specific sequence should be extracted from a specific header." ,\
                          required=False, action="store_true")
     extract.add_argument("-p", "--pos", help="Positions (start,end) of the provided contig to extract", required=False)
@@ -63,11 +63,11 @@ def extract_seq(contig_seq, pos):
     start, end = pos
     return str(contig_seq[start:end])
 
-def Nsplit_scaffolds(subset):
+def Nsplit_scaffolds(subset, minLength):
     """
     Splits all scaffolds containing 'N's on 'N' and
     adds these contigs to the dictionary to be returned.
-    Removes all sub-contigs that are smaller than 200bp.
+    Removes all sub-contigs that are smaller than minLength.
     """
     unambiguous_subset = dict()
     acc = 1
@@ -75,7 +75,7 @@ def Nsplit_scaffolds(subset):
         if 'N' in subset[head]:
             contigs = subset[head].split('N')
             for c in contigs:
-                if len(c) > 200:
+                if len(c) > minLength:
                     contig_name = head + "_" + str(acc)
                     acc += 1
                     unambiguous_subset[contig_name] = c
@@ -112,7 +112,7 @@ def main():
     subset = subset_fasta(args.fasta, headers)
     if args.Nsplit:
         print "Splitting the sequences on 'N's..."
-        subset = Nsplit_scaffolds(subset)
+        subset = Nsplit_scaffolds(subset, args.minLength)
     if args.slice:
         subset = slice_contigs(subset, args.slice, args.pos)
     print "Writing the contig subset to", args.output
