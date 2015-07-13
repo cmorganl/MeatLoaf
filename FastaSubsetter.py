@@ -14,6 +14,7 @@ def set_arguments():
                         default=False, action="store_true")
     parser.add_argument("-m", "--minLength", help="The minimum contig length [DEFAULT = 200].", \
                         required=False, default=200, type=int)
+    parser.add_argument("-x", "--longest", help="Take the 'x' longest contigs. Writes all contigs by default.", default=0, type=int)
     extract.add_argument("-s", "--slice", help="Flag indicating a specific sequence should be extracted from a specific header." ,\
                          required=False, action="store_true")
     extract.add_argument("-p", "--pos", help="Positions (start,end) of the provided contig to extract", required=False)
@@ -93,13 +94,14 @@ def slice_contigs(subset, pos):
         contigs[contig] = seq
     return sorted(contigs)
 
-def write_subset_to_output(subset, output, minLength):
-    ordered_headers = sorted(subset.keys())
+def write_subset_to_output(subset, output, minLength, longest):
+    n = 1
     with open(output, 'w') as fa_out:
-        for contig in ordered_headers:
-            if (len(subset[contig]) > minLength):
+        for contig in sorted(subset, key=lambda contig: len(subset[contig]), reverse=True):
+            if (len(subset[contig]) > minLength and n <= longest):
                 fa_out.write('>' + str(contig) + "\n")
                 fa_out.write(subset[contig] + "\n")
+                n += 1
     return 0
 
 def main():
@@ -116,7 +118,7 @@ def main():
     if args.slice:
         subset = slice_contigs(subset, args.slice, args.pos)
     print "Writing the contig subset to", args.output
-    write_subset_to_output(subset, args.output, args.minLength)
+    write_subset_to_output(subset, args.output, args.minLength, args.longest)
 
     return 0
 
