@@ -45,7 +45,7 @@ def subset_fasta(fasta, headers):
             else:
                 pass
             line = fas.readline()
-    return subset
+    return subset, len(subset.keys())
 
 def load_list(header_list):
     headers = list()
@@ -96,13 +96,15 @@ def slice_contigs(subset, pos):
 
 def write_subset_to_output(subset, output, minLength, longest):
     n = 1
+    fasta_length = 0
     with open(output, 'w') as fa_out:
         for contig in sorted(subset, key=lambda contig: len(subset[contig]), reverse=True):
             if (len(subset[contig]) > minLength and n <= longest):
+                fasta_length += len(subset[contig])
                 fa_out.write('>' + str(contig) + "\n")
                 fa_out.write(subset[contig] + "\n")
                 n += 1
-    return 0
+    return fasta_length, n
 
 def main():
     print "Beginning", sys.argv[0]
@@ -111,15 +113,16 @@ def main():
     if args.list != "all":
         headers = load_list(args.list)
     print "Finding the sequences in", args.list
-    subset = subset_fasta(args.fasta, headers)
+    subset, num_contigs = subset_fasta(args.fasta, headers)
     if args.Nsplit:
         print "Splitting the sequences on 'N's..."
         subset = Nsplit_scaffolds(subset, args.minLength)
     if args.slice:
         subset = slice_contigs(subset, args.slice, args.pos)
     print "Writing the contig subset to", args.output
-    write_subset_to_output(subset, args.output, args.minLength, args.longest)
-
+    if args.longest == 0:
+        args.longest = num_contigs
+    fasta_length, n = write_subset_to_output(subset, args.output, args.minLength, args.longest)
     return 0
 
 main()
