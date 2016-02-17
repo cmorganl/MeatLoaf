@@ -8,21 +8,37 @@ def set_arguments():
     parser = argparse.ArgumentParser()
     extract = parser.add_argument_group("extract")
     parser.add_argument("-i", "--fasta", help = "The fasta file to be subsetted.", required=True)
-    parser.add_argument("-l", "--list", help="The list of contig headers to be subsetted from the fasta file", required=True)
-    parser.add_argument("-o", "--output", help="The output fasta file [DEFAULT = subset.fasta]", required=False, default="subset.fasta")
-    parser.add_argument("-N", "--Nsplit", help="Split the contigs on ambiguity character 'N's [DEFAULT = False]", \
+    parser.add_argument("-l", "--list",
+                        help="The list of contig headers to be subsetted from the fasta file", required=True)
+    parser.add_argument("-o", "--output",
+                        help="The output fasta file [DEFAULT = subset.fasta]", required=False, default="subset.fasta")
+    parser.add_argument("-N", "--Nsplit", help="Split the contigs on ambiguity character 'N's [DEFAULT = False]",
                         default=False, action="store_true")
-    parser.add_argument("-m", "--minLength", help="The minimum contig length [DEFAULT = 200].", \
-                        required=False, default=200, type=int)
-    parser.add_argument("-x", "--longest", help="Take the 'x' longest contigs. Writes all contigs by default.", default=0, type=int)
-    extract.add_argument("-s", "--slice", help="Flag indicating a specific sequence should be extracted from a specific header." ,\
+    parser.add_argument("-m", "--minLength", help="The minimum contig length [DEFAULT = 200].",
+                        required=False,
+                        default=200,
+                        type=int)
+    parser.add_argument("-x", "--longest",
+                        help="Take the 'x' longest contigs. Writes all contigs by default.",
+                        default=0, type=int)
+    parser.add_argument("--inverse",
+                        help="Write all contigs that are NOT in the list to output [DEFAULT = False]",
+                        action="store_true",
+                        default=False)
+    parser.add_argument("--partition",
+                        help="Specify the number of partitions to divide the input FASTA file.",
+                        required=False, type = int, default=1)
+    extract.add_argument("-s", "--slice",
+                         help="Flag indicating a specific sequence should be extracted from a specific header." ,
                          required=False, action="store_true")
     extract.add_argument("-p", "--pos", help="Positions (start,end) of the provided contig to extract", required=False)
     args = parser.parse_args()
     return args
 
-def subset_fasta(fasta, headers):
+def subset_fasta(fasta, headers, invert):
     """
+    Finds each header in `headers` within the `fasta` argument.
+    NOTE: headers within the fasta file are split on spaces!
     :return: A dictionary with the contig headers of interest as keys and their respective sequences as their values.
     """
     subset = dict()
@@ -31,16 +47,19 @@ def subset_fasta(fasta, headers):
     with open(fasta) as fas:
         line = fas.readline()
         while line:
-            if ( line[0] == '>' ):
-                header = line[1:].strip()
+            if line[0] == '>':
+                header = line[1:].strip().split(' ')[0]
                 if headers[0] == "all":
                     headers.append(header)
-                if header in headers:
+                if header in headers and invert == False:
+                    subset[header] = ""
+                    add = 1
+                elif header not in headers and invert == True:
                     subset[header] = ""
                     add = 1
                 else:
                     add = 0
-            elif (add == 1):
+            elif add == 1:
                 subset[header] += line.strip()
             else:
                 pass
@@ -49,12 +68,16 @@ def subset_fasta(fasta, headers):
 
 def load_list(header_list):
     headers = list()
-    with open(header_list) as LoH:
-        for line in LoH:
-            if ( line[0] == '>'):
-                headers.append(line[1:].strip())
-            else:
-                headers.append(line.strip())
+    try:
+        LoH = open(header_list)
+    except IOError:
+        sys.exit("ERROR: Unable to find " + header_list + ". Exiting now!")
+    for line in LoH:
+        if line[0] == '>':
+            headers.append(line[1:].strip())
+        else:
+            headers.append(line.strip())
+    LoH.close()
     return headers
 
 def extract_seq(contig_seq, pos):
@@ -87,24 +110,50 @@ def Nsplit_scaffolds(subset, minLength):
         acc = 1
     return unambiguous_subset
 
-def slice_contigs(subset, pos):
+def slice_contigs(subset, slice, pos):
     contigs = dict()
     for contig in subset:
         seq = extract_seq(subset[contig], pos)
         contigs[contig] = seq
     return sorted(contigs)
 
-def write_subset_to_output(subset, output, minLength, longest):
-    n = 1
+def write_subset_to_output(subset, output, minLength, longest, partition):
+    total_seqs_written = 1
     fasta_length = 0
-    with open(output, 'w') as fa_out:
-        for contig in sorted(subset, key=lambda contig: len(subset[contig]), reverse=True):
-            if (len(subset[contig]) > minLength and n <= longest):
-                fasta_length += len(subset[contig])
-                fa_out.write('>' + str(contig) + "\n")
-                fa_out.write(subset[contig] + "\n")
-                n += 1
-    return fasta_length, n
+    if partition > 1:
+        headers = subset.keys()
+        num_subset_seqs = len(headers)
+        if partition > num_subset_seqs:
+            sys.exit("ERROR: Provided number of partitions is greater than number of sequences in input FASTA!")
+        num_seqs_per = num_subset_seqs / partition
+        seqs_parsed = 0
+        while partition >= 1:
+            output_file = output+"_"+str(partition)
+            print output_file,
+            seqs_written = 0
+            with open(output_file, 'w') as fa_out:
+                # TODO: Ensure the last sequence is being written
+                # TODO: Handle the end of file case
+                while seqs_written <= num_seqs_per and seqs_parsed < num_subset_seqs:
+                    contig = headers[seqs_parsed]
+                    if len(subset[contig]) > minLength:
+                        fasta_length += len(subset[contig])
+                        fa_out.write('>' + str(contig) + "\n")
+                        fa_out.write(subset[contig] + "\n")
+                        total_seqs_written += 1
+                        seqs_written += 1
+                    seqs_parsed += 1
+            partition -= 1
+    else:
+        print output
+        with open(output, 'w') as fa_out:
+            for contig in sorted(subset, key=lambda contig: len(subset[contig]), reverse=True):
+                if len(subset[contig]) > minLength and total_seqs_written <= longest:
+                    fasta_length += len(subset[contig])
+                    fa_out.write('>' + str(contig) + "\n")
+                    fa_out.write(subset[contig] + "\n")
+                    total_seqs_written += 1
+    return fasta_length, total_seqs_written
 
 def main():
     print "Beginning", sys.argv[0]
@@ -113,16 +162,16 @@ def main():
     if args.list != "all":
         headers = load_list(args.list)
     print "Finding the sequences in", args.list
-    subset, num_contigs = subset_fasta(args.fasta, headers)
+    subset, num_contigs = subset_fasta(args.fasta, headers, args.inverse)
     if args.Nsplit:
         print "Splitting the sequences on 'N's..."
         subset = Nsplit_scaffolds(subset, args.minLength)
     if args.slice:
         subset = slice_contigs(subset, args.slice, args.pos)
-    print "Writing the contig subset to", args.output
+    print "Writing the contig subset to",
     if args.longest == 0:
         args.longest = num_contigs
-    fasta_length, n = write_subset_to_output(subset, args.output, args.minLength, args.longest)
+    fasta_length, n = write_subset_to_output(subset, args.output, args.minLength, args.longest, args.partition)
     return 0
 
 main()
