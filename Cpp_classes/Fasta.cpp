@@ -90,16 +90,18 @@ int Fasta::record_header( string line ) {
     return 0;
 }
 
-int Fasta::record_sequence( string line, int line_len) {
-    genome_length += line_len - 2;
-    header_base.seq_length[N_contigs] += line_len - 2;
-    sequences = (char **) realloc (sequences, (genome_length + N_contigs) * sizeof(char *));
-    if ( sequences[N_contigs] == NULL) {
-        sequences[N_contigs] = (char *) malloc (line_len * sizeof(char));
+int Fasta::record_sequence( string line ) {
+    int line_len = line.length();
+    header_base.seq_length[N_contigs] += line_len;
+    sequences = (char **) realloc (sequences, (genome_length + line_len) * sizeof(char *));
+    if ( sequences[N_contigs] == NULL ) {
+        sequences[N_contigs] = (char *) malloc ( (line_len+2) * sizeof(char));
         strcpy(sequences[N_contigs], line.c_str());
+        sequences[N_contigs + 1] = NULL;
     }
     else {
-        sequences[N_contigs] = (char *) realloc (sequences[N_contigs], (strlen(sequences[N_contigs]) + line_len) * sizeof(char));
+        sequences[N_contigs] = (char *) realloc (sequences[N_contigs],
+                                                 (strlen(sequences[N_contigs]) + (line_len+2)) * sizeof(char));
         strcat(sequences[N_contigs], line.c_str());
     }
     return 0;
@@ -107,7 +109,6 @@ int Fasta::record_sequence( string line, int line_len) {
 
 int Fasta::parse_fasta(int min_length) {
     string line;
-    int line_len;
     std::string header;
     sequences[N_contigs] = NULL;
 
@@ -122,10 +123,10 @@ int Fasta::parse_fasta(int min_length) {
         if (line.length() == 0)
             ;
         else {
-            line_len = line.length() + 2;
             if (line.at(0) == '>') {
                 if ( find_sequence_length(N_contigs) >= min_length ) {
                     record_header(header);
+                    genome_length += header_base.seq_length[N_contigs];
                     N_contigs++;
                 }
                 else {
@@ -135,7 +136,7 @@ int Fasta::parse_fasta(int min_length) {
                 header = line;
             }
             else
-                record_sequence( line, line_len );
+                record_sequence(line);
         }
         getline( *fasta_file, line );
     }

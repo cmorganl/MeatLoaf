@@ -167,6 +167,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "ERROR: The input was not parsed correctly (N_contigs differs from vector size)!");
 
     std::cout << "Longest sequence = " << genome.find_longest_contig() << std::endl;
+    std::cout << "Number of bases in file = " << genome.genome_length << std::endl;
 
 
     write_subset_to_output(&genome, options.output, options.num_partitions);

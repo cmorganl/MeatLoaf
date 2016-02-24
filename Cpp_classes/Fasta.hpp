@@ -20,8 +20,8 @@ struct header {
 
 class Fasta {
 protected:
-    int record_header(std::string);
-    int record_sequence( std::string, int );
+    int record_header( std::string );
+    int record_sequence( std::string );
 
 public:
     Fasta( std::string );
