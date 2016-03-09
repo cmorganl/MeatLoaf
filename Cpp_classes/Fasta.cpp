@@ -52,6 +52,59 @@ Fasta::Fasta( const Fasta& other) : header_base(other.header_base), sequences(ot
     std::cout << "Copy constructor activated" << std::endl;
 }
 
+int Fasta::writeNx(string output, bool verbose) {
+    /*
+     * A function for writing a csv for generating Nx curves
+     * Columns are Genome_proportion, Contig_size
+     */
+    if (verbose)
+        cerr << "Sorting sequence lengths... ";
+    std::sort (header_base.seq_length.begin(), header_base.seq_length.end());
+    if (verbose)
+        cerr << "done." << endl;
+
+    float x = 0.0;
+    signed long prop_counter = N_contigs;
+    signed long seq_mass = header_base.seq_length[prop_counter];
+    if (verbose)
+        cerr << "Sequence mass initialized to longest sequence: " << seq_mass << "bp" << endl;
+
+    std::ofstream Nx_out;
+    if (output.size() > 1) {
+        if (verbose)
+            cerr << "Opening output \"" << output << "\"" << endl;
+        Nx_out.open(output.c_str());
+        Nx_out << "Genome_proportion" << "," << "Contig_size" << endl;
+    }
+    else {
+        cerr << "No output provided - printing to stdout" << endl;
+        cerr << endl;
+        cout << "Genome_proportion" << "," << "Contig_size" << endl;
+    }
+
+    while ( x <= 100 ) {
+        while (seq_mass < ((x / 100) * genome_length) && prop_counter > 0) {
+            prop_counter--;
+            if (header_base.seq_length[prop_counter] == 0) {
+                cerr << "Sequences with 0 length were recorded at index " << prop_counter << endl;
+                exit(3);
+            }
+            seq_mass += header_base.seq_length[prop_counter];
+
+        }
+        if (output.size() > 1) {
+            Nx_out << x / 100 << "," << header_base.seq_length[prop_counter] << endl;
+        }
+        else
+            cout << x / 100 << "," << header_base.seq_length[prop_counter] << endl;
+        x++;
+    }
+    if (output.size() > 1) {
+        Nx_out.close();
+    }
+    return 1;
+}
+
 int Fasta::find_longest_contig() {
     int x;
     int size = 0;
@@ -140,6 +193,7 @@ int Fasta::parse_fasta(int min_length) {
         }
         getline( *fasta_file, line );
     }
+    genome_length += header_base.seq_length[N_contigs];
     if ( find_sequence_length(N_contigs) >= min_length ) {
         record_header(header);
         N_contigs++;
