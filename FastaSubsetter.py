@@ -80,12 +80,13 @@ def load_list(header_list):
     LoH.close()
     return headers
 
-def extract_seq(contig_seq, pos):
+def extract_seq(contig_seq, start, end):
     """
     :return: A sub-string of the contig sequence as determined by the pos tuple.
     """
-    start, end = pos
-    return str(contig_seq[start:end])
+    start_pos = int(start)
+    end_pos = int(end)
+    return str(contig_seq[start_pos:end_pos])
 
 def Nsplit_scaffolds(subset, minLength):
     """
@@ -110,12 +111,12 @@ def Nsplit_scaffolds(subset, minLength):
         acc = 1
     return unambiguous_subset
 
-def slice_contigs(subset, slice, pos):
+def slice_contigs(subset, slice, start, end):
     contigs = dict()
     for contig in subset:
-        seq = extract_seq(subset[contig], pos)
+        seq = extract_seq(subset[contig], start, end)
         contigs[contig] = seq
-    return sorted(contigs)
+    return contigs
 
 def write_subset_to_output(subset, output, minLength, longest, partition):
     total_seqs_written = 1
@@ -167,7 +168,8 @@ def main():
         print "Splitting the sequences on 'N's..."
         subset = Nsplit_scaffolds(subset, args.minLength)
     if args.slice:
-        subset = slice_contigs(subset, args.slice, args.pos)
+	start, end = args.pos.split(',')
+        subset = slice_contigs(subset, args.slice, start, end)
     print "Writing the contig subset to",
     if args.longest == 0:
         args.longest = num_contigs
