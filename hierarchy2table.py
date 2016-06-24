@@ -2,6 +2,7 @@
 
 import os
 import argparse
+import sys
 
 
 def get_options():
@@ -88,19 +89,40 @@ def is_annotated(fields, metacyc=False):
 
 
 def map_proteins(process_hierarchy_map, ptools_input, orf_annotations):
+    """
+    Function to map the processes of interest to ORF IDs, protein products, number of reactions in pathway and
+    number of covered reactions
+    :param process_hierarchy_map: dictionary of process-names: [paths]
+    :param ptools_input: Dictionary of name: product
+    :param orf_annotations: Dictionary of pathway-names: [n_reactions, n_covered, orfs, path]
+    :return:
+    """
     # Map the reactions and/or pathways for each process in process_hierarchy_dict to the ORF annotations
     print "Annotations:"
     annotation_process_map = dict()
     for process, paths in process_hierarchy_map.items():
+        data = ""
         annotation_process_map[process] = list()
-        for path in paths:
-            for part in path:
-                for name, product in ptools_input.items():
+        if process in orf_annotations.keys():
+            n_reactions = orf_annotations[process][0]
+            n_covered = orf_annotations[process][1]
+            orfs = orf_annotations[process][2]
+            # annotation_process_map[process].append(orf_annotations[process])
+        else:
+            n_reactions = str(0)
+            n_covered = str(0)
+            orfs = ""
+        for name, product in ptools_input.items():
+            if name in orfs:
+                data = [name, part, product, n_reactions, n_covered]
+                annotation_process_map[process].append(data)
+            for path in paths:
+                for part in path:
                     if part in product:
-                        print part, product
-                        annotation_process_map[process].append(product)
-                    elif name in orf_annotations.keys():
-                        print part, product
+                        data = [name, part, product, n_reactions, n_covered]
+                        annotation_process_map[process].append(data)
+
+    # Report number of processes found
     annotations_found = 0
     for process in annotation_process_map:
         if len(annotation_process_map[process]) == 0:
@@ -131,7 +153,8 @@ def get_process_paths(comp_list, hierarchy_paths):
         for sub_class in hierarchy_paths.values():
             for path in sub_class:
                 if process in path:
-                    process_hierarchy_map[process].append(path)
+                    start = path.index(process)
+                    process_hierarchy_map[process].append(path[start+1:])
 
     # Remove processes with no entry in the hierarchy
     no_hierarchy = list()
@@ -145,11 +168,11 @@ def get_process_paths(comp_list, hierarchy_paths):
 
 
 def write_process_annotations(annotation_process_map, output):
-    output.write("Process\tProtein annotation\tCommon name\tNumber of reactions\tNumber covered\n")
+    output.write("Process\tORF name\tReaction\tProduct\tNumber of reactions\tNumber covered\n")
     for process in annotation_process_map.keys():
         if len(annotation_process_map[process]) > 0:
             for annotation in annotation_process_map[process]:
-                output.write(process + "\t" + annotation + "\n")
+                output.write(process + "\t" + "\t".join(annotation) + "\n")
     return
 
 
@@ -170,26 +193,27 @@ def read_pgdb_input(pgdb_input):
 
 
 def search_dict(word, dictionary):
-    for key in dictionary:
-        if word == key:
-            return dictionary[key]
-        for value in dictionary[key]:
-            if word in value:
-                return value
+    for process, path in dictionary.items():
+        if word == process:
+            return [process, path]
+        elif word in path:
+            return [process, path]
     return False
 
 
 def read_pwy_txt(pathway_annotations, process_hierarchy_map):
+    # TODO: Get n_reactions, n_covered, ORFs for all pathways
     orf_annotations = dict()
     with open(pathway_annotations) as pwy_txt:
         for line in pwy_txt:
             fields = line.split("\t")
             if not fields[0] == "SAMPLE":
-                status = search_dict(fields[1], process_hierarchy_map)
-                if status:
+                path = search_dict(fields[1], process_hierarchy_map)
+                if path:
                     orfs = fields[-1][1:-2].split(',')
-                    for orf in orfs:
-                        orf_annotations[orf] = status
+                    n_reactions = fields[3]
+                    n_covered = fields[4]
+                    orf_annotations[path[0]] = [n_reactions, n_covered, orfs, path[1]]
     return orf_annotations
 
 
