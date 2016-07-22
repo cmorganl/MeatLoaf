@@ -146,7 +146,8 @@ def get_process_paths(comp_list, hierarchy_paths):
 
 
 def write_process_annotations(orf_annotations, output, num_processes):
-    output.write("Process\tPathway Common Name\tNumber of reactions\tNumber covered\tReaction\tORF name\n")
+    output.write("Process\tSample\tPathway\tPathway Common Name\tNumber of reactions"
+                 "\tNumber covered\tReaction\tORF name\n")
     annotations_found = 0
     for process in orf_annotations.keys():
         if len(orf_annotations[process]) == 0:
