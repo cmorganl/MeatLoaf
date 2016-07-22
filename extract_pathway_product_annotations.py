@@ -6,7 +6,9 @@ import sys
 
 
 def get_options():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Script to pull pathway-names, pathway-common-names, rxn-common-name, "
+                                                 "num-reactions, num-covered-reactions, orf-count, orf, taxonomy, and "
+                                                 "RPKM values for all sequences from various MetaPathways outputs.")
     parser.add_argument("-i", "--hierarchy", required=True,
                         help="The hierarchy text file for mapping components to classes")
     parser.add_argument("-o", "--output", required=True,
@@ -15,18 +17,39 @@ def get_options():
                         help="An optional list of hierarchy components to return information on")
     parser.add_argument("--pathways", required=False, default=False, action="store_true",
                         help="Flag to indicate the output should be at pathway level [DEFAULT = reaction-level]")
-    # parser.add_argument("-a", "--orf_annotations", required=False,
-    #                     help="If using a list to determine the proteins captured within pathways,"
-    #                          "an associated MetaPathways ORF_annotation_table is provided here")
     parser.add_argument("-p", "--pathway_annotations", required=True,
-                        help="The pwy.txt file from metapathways")
-    parser.add_argument("-f", "--pgdb_input", required=True,
-                        help="The 0.pf file from metapathways")
+                        help="The output from extract_pathway_table_from_pgdb.pl")
     args = parser.parse_args()
 
     if not os.path.isfile(args.hierarchy):
         raise IOError("ERROR: " + args.hierarchy + " doesn't exist!")
 
+    return args
+
+
+def check_inputs(args):
+    """
+    Checks to make sure the paths and files exist and if the individual files are provided,
+    then the metapathways directory is not provided
+    :param args: command-line arguments parsed by argparse
+    :return: nothing
+    """
+    # TODO: check input files
+    return
+
+
+def round_up_mp_inputs(args):
+    args.sample_id = args.mp_inputs.rstrip(os.sep).split(os.sep)[-1]
+    pwy_txt = args.mp_inputs + os.sep + "results" + os.sep + "pgdb" + os.sep + args.sample_id + ".pwy.txt"
+    if not os.path.isfile(pwy_txt):
+        raise IOError("Unable to find pathway annotations file (pwy.txt) in MetaPathway directory!\n"
+                      "Looked for " + pwy_txt + " but file doesn't exist.")
+    ptools_input = args.mp_inputs + os.sep + "ptools" + os.sep + "0.pf"
+    if not os.path.isfile(ptools_input):
+        raise IOError("Unable to find PGDB input file (0.pf) in MetaPathway directory!\n"
+                      "Looked for " + ptools_input + " but file doesn't exist.")
+    args.pathway_annotations = pwy_txt
+    args.pgdb_input = ptools_input
     return args
 
 
@@ -88,51 +111,6 @@ def is_annotated(fields, metacyc=False):
                 return False
 
 
-def map_proteins(process_hierarchy_map, ptools_input, orf_annotations):
-    """
-    Function to map the processes of interest to ORF IDs, protein products, number of reactions in pathway and
-    number of covered reactions
-    :param process_hierarchy_map: dictionary of process-names: [paths]
-    :param ptools_input: Dictionary of name: product
-    :param orf_annotations: Dictionary of pathway-names: [n_reactions, n_covered, orfs, path]
-    :return:
-    """
-    # Map the reactions and/or pathways for each process in process_hierarchy_dict to the ORF annotations
-    print "Annotations:"
-    annotation_process_map = dict()
-    for process, paths in process_hierarchy_map.items():
-        data = ""
-        annotation_process_map[process] = list()
-        if process in orf_annotations.keys():
-            n_reactions = orf_annotations[process][0]
-            n_covered = orf_annotations[process][1]
-            orfs = orf_annotations[process][2]
-            # annotation_process_map[process].append(orf_annotations[process])
-        else:
-            n_reactions = str(0)
-            n_covered = str(0)
-            orfs = ""
-        for name, product in ptools_input.items():
-            if name in orfs:
-                data = [name, part, product, n_reactions, n_covered]
-                annotation_process_map[process].append(data)
-            for path in paths:
-                for part in path:
-                    if part in product:
-                        data = [name, part, product, n_reactions, n_covered]
-                        annotation_process_map[process].append(data)
-
-    # Report number of processes found
-    annotations_found = 0
-    for process in annotation_process_map:
-        if len(annotation_process_map[process]) == 0:
-            print "No entries found for", process, "in annotations"
-        else:
-            annotations_found += 1
-    print annotations_found, "/", len(annotation_process_map.keys()), "processes mapped to annotations"
-    return annotation_process_map
-
-
 def get_process_paths(comp_list, hierarchy_paths):
     # Read the list, orf annotations and pathway annotations
     components = list()
@@ -167,58 +145,83 @@ def get_process_paths(comp_list, hierarchy_paths):
     return process_hierarchy_map
 
 
-def write_process_annotations(annotation_process_map, output):
-    output.write("Process\tORF name\tReaction\tProduct\tNumber of reactions\tNumber covered\n")
-    for process in annotation_process_map.keys():
-        if len(annotation_process_map[process]) > 0:
-            for annotation in annotation_process_map[process]:
-                output.write(process + "\t" + "\t".join(annotation) + "\n")
+def write_process_annotations(orf_annotations, output, num_processes):
+    output.write("Process\tPathway Common Name\tNumber of reactions\tNumber covered\tReaction\tORF name\n")
+    annotations_found = 0
+    for process in orf_annotations.keys():
+        if len(orf_annotations[process]) == 0:
+            print "No entries found for", process, "in annotations"
+        elif len(orf_annotations[process]) > 0:
+            annotations_found += 1
+            previous_annotation = ""
+            process_annotations = sorted(orf_annotations[process])
+            for annotation in process_annotations:
+                if annotation != previous_annotation:
+                    output.write(process + "\t" + "\t".join(annotation) + "\n")
+                previous_annotation = annotation
+    print annotations_found, "/", num_processes, "processes mapped to annotations"
     return
 
 
-def read_pgdb_input(pgdb_input):
-    ptools_input = dict()
-    name = ""
-    with open(pgdb_input) as pf:
-        for line in pf:
-            if line.strip() == "//":
-                pass
-            else:
-                key, value = line.strip().split("\t")
-                if key == "NAME":
-                    name = value
-                if key == "PRODUCT":
-                    ptools_input[name] = value
-    return ptools_input
+def search_dict(query_one, query_two, dictionary):
+    """
+    Matches a word with a key in the dictionary
+    :param word: A pathway name
+    :param dictionary: A collection of process names (which are anything in the metacyc hierarchy) and all
+    processes associated with it from the hierarchy
+    :return: a list packing the process and path associated with word or nothing
+    """
+    process_annotations = list()
 
-
-def search_dict(word, dictionary):
     for process, path in dictionary.items():
-        if word == process:
-            return [process, path]
-        elif word in path:
-            return [process, path]
-    return False
+        for pairs in path:
+            if query_two in pairs:
+                process_annotations.append([process, pairs[0]])
+            if query_one in pairs:
+                process_annotations.append([process, path[0]])
+
+    if len(process_annotations) == 0:
+        return False
+    else:
+        return process_annotations
 
 
 def read_pwy_txt(pathway_annotations, process_hierarchy_map):
-    # TODO: Get n_reactions, n_covered, ORFs for all pathways
     orf_annotations = dict()
     with open(pathway_annotations) as pwy_txt:
-        for line in pwy_txt:
+        line = pwy_txt.readline()
+        while line:
             fields = line.split("\t")
             if not fields[0] == "SAMPLE":
-                path = search_dict(fields[1], process_hierarchy_map)
-                if path:
-                    orfs = fields[-1][1:-2].split(',')
-                    n_reactions = fields[3]
-                    n_covered = fields[4]
-                    orf_annotations[path[0]] = [n_reactions, n_covered, orfs, path[1]]
+                # Match the pathway name with the process of interest, if possible
+                process_annotations = search_dict(fields[1], fields[3], process_hierarchy_map)
+                if process_annotations:
+                    for path in process_annotations:
+                        process = path[0]
+                        if process not in orf_annotations.keys():
+                            orf_annotations[process] = list()
+                        orf = fields[-1].strip()
+                        sample = fields[0]
+                        n_reactions = fields[5]
+                        n_covered = fields[6]
+                        pwy_name = fields[1]
+                        pwy_common = fields[2]
+                        rxn_name = fields[3]
+                        orf_annotations[process].append([sample, pwy_name, pwy_common,
+                                                         n_reactions, n_covered, rxn_name, orf])
+            line = pwy_txt.readline()
+
+    # Add the missing processes to the orf_annotations with empty lists
+    for process in process_hierarchy_map:
+        if process not in orf_annotations.keys():
+            orf_annotations[process] = list()
     return orf_annotations
 
 
 def main():
     args = get_options()
+    check_inputs(args)
+
     hierarchy = open(args.hierarchy, 'r')
     hierarchy_paths = read_hierarchy(hierarchy)
     hierarchy.close()
@@ -232,10 +235,8 @@ def main():
     if args.comp_list is None:
         write_long_hierarchy(hierarchy_paths, output)
     else:
-        ptools_input = read_pgdb_input(args.pgdb_input)
         process_hierarchy_map = get_process_paths(args.comp_list, hierarchy_paths)
         orf_annotations = read_pwy_txt(args.pathway_annotations, process_hierarchy_map)
-        annotation_process_map = map_proteins(process_hierarchy_map, ptools_input, orf_annotations)
-        write_process_annotations(annotation_process_map, output)
+        write_process_annotations(orf_annotations, output, len(process_hierarchy_map.keys()))
     output.close()
 main()

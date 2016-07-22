@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-__author__ = "Connor Morgan-Lang"
 
 import sys
 import re
 import argparse
+
+__author__ = "Connor Morgan-Lang"
 
 
 def set_arguments():
