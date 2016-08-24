@@ -144,6 +144,7 @@ def parse_coords(coords_files):
 def write_identity_matrix(identity_dict, genome_size_dict, output_matrix):
     matrix = open(output_matrix, 'w')
     for reference in identity_dict:
+        matrix.write(reference + "\t" + reference + "\t" + str(1.0) + "\n")
         number_bases = genome_size_dict[reference]
         for query in identity_dict[reference]:
             identity = identity_dict[reference][query] / number_bases
