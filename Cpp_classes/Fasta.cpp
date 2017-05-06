@@ -1,8 +1,8 @@
 /*
- * Fasta.cpp (c) 2015 Connor Morgan-Lang <c.morganlang@gmail.com>
+ * Fasta.cpp Connor Morgan-Lang <c.morganlang@gmail.com>
  * Hallam Lab, Department of Microbiology and Immunulogy, UBC
  * ------------------------------------------
- * Last modified: 23 February 2016 (CML)
+ * Last modified: April 11 2016 (CML)
  * ------------------------------------------
  */
 

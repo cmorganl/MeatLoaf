@@ -4,6 +4,9 @@
 #include <string>
 #include <getopt.h>
 #include <fstream>
+#include <algorithm>
+#include <vector>
+#include <cmath>
 
 struct Options {
 // Fasta files:
@@ -58,7 +61,7 @@ void Options::Print_help() {
     -n: \n\
     \tNumber of partitions to divide the FASTA file.\n\
     -v: \n\
-    \tTurns on verbosity.\n\
+    \tTurns on verbosity (prints summary ).\n\
     -h \n\
     \tShow help message and exit\n";
     std::cerr << help << std::endl;
@@ -127,17 +130,24 @@ void write_subset_to_output(Fasta* genome, string output, int partition) {
     int seqs_parsed = 0;
     int num_seqs_per = genome->N_contigs / partition;
     string header;
+    string output_file;
     std::ofstream fa_out;
     if (partition > genome->N_contigs) {
-        std::cerr << "ERROR: Provided number of partitions is greater than number of sequences in input FASTA!" << std::endl;
+        std::cerr << "ERROR: Provided number of partitions is greater"
+                " than number of sequences in input FASTA!" << std::endl;
         exit(-1);
     }
 
     while (partition >= 1) {
         seqs_written = 0;
-        char str_partition [5];
-        sprintf(str_partition, "%d", partition);
-        string output_file = output + "_" + str_partition;
+        if (partition >= 2) {
+            char str_partition [5];
+            sprintf(str_partition, "%d", partition);
+            output_file = output + "_" + str_partition;
+        }
+        else
+            output_file = output;
+
         fa_out.open(output_file.c_str());
         while (seqs_written <= num_seqs_per and seqs_parsed < genome->N_contigs) {
             header = genome->header_base.name[seqs_parsed].append("\n");
@@ -153,10 +163,56 @@ void write_subset_to_output(Fasta* genome, string output, int partition) {
     return;
 }
 
+std::vector<int> sort_contigs_by_length(Fasta* seqs, bool verbose) {
+    int seq_lengths[seqs->N_contigs];
+    int x;
+    if (verbose)
+        std::cout << "Sorting the contigs by length... ";
+    for (x = 0; x < seqs->N_contigs; x++) {
+        if ( seqs->sequences[x] == NULL) {
+            fprintf(stderr, "ERROR: A sequence was improperly loaded into FASTA!\n");
+            cout << "Index " << x << " (" << seqs->header_base.name[x] << ") is NULL." << endl;
+            exit(-1);
+        }
+        seq_lengths[x] = strlen(seqs->sequences[x]);
+        if (seq_lengths[x] != seqs->header_base.seq_length[x] )
+            fprintf(stderr, "ERROR: Sequences and header_base are not matching!\n");
+    }
+    std::vector<int> vector_lengths (seq_lengths, seq_lengths + sizeof(seq_lengths) / sizeof(int));
+    std::sort (vector_lengths.begin(), vector_lengths.end());
+
+    if (verbose)
+        std::cout << "done." << endl;
+    return vector_lengths;
+}
+
+int median_seq_length(std::vector<int> vector_lengths, int num_seqs) {
+    int half = num_seqs/2;
+    return vector_lengths[half];
+}
+
+
+float calculateSD(std::vector<int> data) {
+    float sum = 0.0;
+    float mean;
+    float standardDeviation = 0.0;
+
+    for (std::vector<int>::iterator it = data.begin(); it != data.end(); ++it)
+        sum += *it;
+    mean = sum/data.size();
+
+    for (std::vector<int>::iterator it = data.begin(); it != data.end(); ++it)
+        standardDeviation += pow(*it - mean, 2);
+
+    cout << sqrt(standardDeviation / data.size()) << endl;
+    return sqrt(standardDeviation / data.size());
+}
+
+
 int main(int argc, char *argv[]) {
     Options options;
     options.Options::FetchArguments(argc, argv);
-    if (options.hFlag == true) {
+    if (options.hFlag) {
         options.Print_help();
         exit(1);
     }
@@ -166,11 +222,20 @@ int main(int argc, char *argv[]) {
     if (return_status > 0)
         fprintf(stderr, "ERROR: The input was not parsed correctly (N_contigs differs from vector size)!");
 
-    std::cout << "Longest sequence = " << genome.find_longest_contig() << std::endl;
-    std::cout << "Number of bases in file = " << genome.genome_length << std::endl;
+    if (options.verbose) {
+        std::vector<int> sorted_seq_lengths = sort_contigs_by_length(&genome, options.verbose);
+        std::cout << "Longest sequence = " << sorted_seq_lengths.at( genome.N_contigs - 1) << std::endl;
+        std::cout << "Shortest sequence = " << sorted_seq_lengths[0] << std::endl;
+        std::cout << "Median length = " << median_seq_length(sorted_seq_lengths, genome.N_contigs) << std::endl;
+        std::cout << "Number of sequences = " << genome.N_contigs << endl;
+        std::cout << "Number of bases in file = " << genome.genome_length << std::endl;
+        float sd = calculateSD(sorted_seq_lengths);
+//        for (std::vector<int>::iterator it = sorted_seq_lengths.begin(); it != sorted_seq_lengths.end(); ++it)
+//            std::cout << ' ' << *it;
+//        std::cout << '\n';
+    }
 
 
     write_subset_to_output(&genome, options.output, options.num_partitions);
-
 
 }
