@@ -20,7 +20,7 @@ def set_arguments():
                         required=False,
                         default=200,
                         type=int)
-    parser.add_argument("-c", "--min_coverage", default=0, required=False, type=int,
+    parser.add_argument("-c", "--min_coverage", default=0, required=False, type=float,
                         help="If the contig/scaffold coverage is included in the header name (by *_cov_X.Y_*),"
                              "then filter the contigs by their coverage [ DEFAULT = 0, no filtering ]")
     parser.add_argument("-x", "--longest",
@@ -56,7 +56,8 @@ def subset_fasta(fasta, headers, invert):
         line = fas.readline()
         while line:
             if line[0] == '>':
-                header = line[1:].strip().split(' ')[0]
+                header = line[1:].strip()
+                # header = line[1:].strip().split(' ')[0]
                 if headers[0] == "all":
                     headers.append(header)
                 if header in headers and invert is False:
