@@ -23,6 +23,7 @@ typedef struct _CONTIG {
      */
     unsigned int L;
     float rpkm;
+    int hits;
     READ_DATA M;
 } CONTIG;
 

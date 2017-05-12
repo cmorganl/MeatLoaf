@@ -107,10 +107,14 @@ int main( int argc, char **argv ){
         substring_coverage(contigs_dictionary, it->first, 1, it->second.L, coverage, 0, multireads, options.multi_reads);
         total_covered_length += coverage.coverage*contigs_dictionary[it->first].L;
         it->second.rpkm = (1E9/ static_cast<float>(stats.num_total_reads))*
-                (static_cast<float>(coverage.numreads)/ static_cast<float>(coverage.sequence_length));
+                              (static_cast<float>(coverage.numreads)/ static_cast<float>(coverage.sequence_length));
+        it->second.hits = static_cast<int>(coverage.numreads);
         rpkm_sum += it->second.rpkm;
 
-        *output << it->first << ',' << it->second.rpkm << endl;
+        if (options.hits_only)
+            *output << it->first << ',' << it->second.hits << endl;
+        else
+            *output << it->first << ',' << it->second.rpkm << endl;
     }
     rpkm_output.close();
 

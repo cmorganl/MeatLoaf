@@ -24,6 +24,7 @@ struct Options {
     bool multi_reads; // flag for detecting multiple mapping of reads
     bool show_status; // shows the counter that counts the number of reads processed, and other info
                        // on screen
+    bool hits_only;
     string reads_map_file_format; // aligner type BWA or BLAST, two SAM files or one
     
     // Constructor with default settings 
@@ -34,6 +35,7 @@ struct Options {
         output_file = "";
         num_reads = 0;
 
+        hits_only = false;
         multi_reads = false;
         show_status = false;
         reads_map_file_format = "sam-1";

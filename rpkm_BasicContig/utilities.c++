@@ -17,6 +17,7 @@ void Options::print_usage(char *arg) {
             << "\tUse this flag to use multireads in RPKM calculations "\
             << "(i.e., turn off masking of low-complexity regions).\n"\
             << "\tReads aligning to multiple loci will evenly distributed amongst the contigs.\n"
+            << "--n_hits              do not calculate RPKM\n"\
             << "--verbose             [shows run status]\n"\
             << "--h                   [ for help ]\n"\
             << std::endl;
@@ -33,10 +34,13 @@ bool Options::SetOptions(int argc, char *argv[]) {
        }   
        else if( strncmp(argv[i], "-s", strlen("-s")) == 0 ) {
           this->stats_file = argv[++i];
-       }   
+       }
        else if(strncmp(argv[i], "-a", strlen("-a")) == 0 ) {
           this->read_map_files.push_back(string(argv[++i]));
-       }   
+       }
+       else if( strncmp(argv[i], "--n_hits", strlen("--n_hits")) == 0 ) {
+           this->hits_only = true;
+       }
        else if(strncmp(argv[i], "--verbose", strlen("--verbose")) == 0 ) {
           this->show_status = true;
        }
