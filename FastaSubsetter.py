@@ -57,7 +57,8 @@ def subset_fasta(fasta, headers, invert):
         line = fas.readline()
         while line:
             if line[0] == '>':
-                header = line[1:].strip().split(' ')[0]
+                # header = line[1:].strip().split(' ')[0]
+                header = line[1:].strip()
                 if headers[0] == "all":
                     headers.append(header)
                 if header in headers and invert is False:
