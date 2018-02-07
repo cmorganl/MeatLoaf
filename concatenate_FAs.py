@@ -38,6 +38,10 @@ def get_sample_name_from_file_name(file_name):
 
 def main():
     args = get_options()
+    if os.path.exists(args.output):
+        response = raw_input("Output file already exists. Should it be removed? [y|n] ")
+        if response == 'y':
+            os.remove(args.output)
     try:
         output_fasta = open(args.output, 'w')
     except:
