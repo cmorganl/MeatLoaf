@@ -30,9 +30,9 @@ def get_options():
     opt_args.add_argument("-p",
                           dest="perc_aligned",
                           type=int,
-                          default=80,
+                          default=90,
                           help="The minimum percentage of the HMM that was covered by the target sequence (ORF) "
-                               "for the COG hit to be included [default=85]")
+                               "for the COG hit to be included [default=90]")
     opt_args.add_argument("-e",
                           dest="min_e",
                           type=float,
@@ -41,8 +41,8 @@ def get_options():
     opt_args.add_argument("-a",
                           dest="min_acc",
                           type=float,
-                          default=0.85,
-                          help="The minimum acc threshold of the HMM search for reporting [default=0.85]")
+                          default=0.90,
+                          help="The minimum acc threshold of the HMM search for reporting [default=0.90]")
     miscellaneous_opts = parser.add_argument_group("Miscellaneous options")
     miscellaneous_opts.add_argument("-v", "--verbose", action='store_true', default=False,
                                     help='Prints a more verbose runtime log')
@@ -200,7 +200,7 @@ def filter_poor_hits(args, dom_table):
                         purified_matches[query_header].append(target_length)
                     elif data['num'] < data['of']:
                         # More alignments should follow
-                        match_end = data['end']
+                        match_end = data['qend']
                     else:
                         purified_matches[query_header].append((data['hmm_name'], cumulative_len))
                         
@@ -209,8 +209,8 @@ def filter_poor_hits(args, dom_table):
                     cumulative_len = 0
                     if data['of'] > 1:
                         # More alignments should follow
-                        match_start = int(data['start'])
-                        match_end = int(data['end'])
+                        match_start = int(data['qstart'])
+                        match_end = int(data['qend'])
                     else:
                         purified_matches[query_header].append((data['hmm_name'], ali_len))
 
