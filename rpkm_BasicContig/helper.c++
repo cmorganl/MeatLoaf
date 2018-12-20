@@ -50,37 +50,38 @@ RUN_STATS consume_sam(const std::string &SAM_file, const std::string &format,\
         if (!parser->nextline(match))
             break;
 
-        if (i >= _MAX) break;
-
-        if (match.mapped)
-            stats.num_mapped_reads++;
-        else
-            stats.num_unmapped_reads++;
-
-        if (match.parity)
-            stats.num_reads_2++;
-        else stats.num_reads_1++;
-
-        if (reads_dict.find(match.query) == reads_dict.end()) {
-            p.first = false;
-            p.second = false;
-            p.third = 0;
-            p.fourth = 0;
-            reads_dict[match.query] = p;
+        if (i >= _MAX) {
+            std::cerr << "ERROR: Maximum number of alignments has been exceeded!" << endl;
+            break;
         }
-        stats.num_alignments++;
 
-        // if it is not mapped then ignore it
-        if (!match.mapped)
-            continue;
+        stats.num_alignments++; // This include unmapped reads
 
-        if (match.parity) {
-            reads_dict[match.query].first = true;
-            reads_dict[match.query].third++;
+        if (match.mapped) {
+            stats.num_mapped_reads++;
+            // TODO: Replace this necessity - searches the entire reads_dict to ensure the current query isn't already in
+            if (reads_dict.find(match.query) == reads_dict.end()) {
+                p.first = false;
+                p.second = false;
+                p.third = 0;
+                p.fourth = 0;
+                reads_dict[match.query] = p;
+            }
+
+            if (match.parity) {
+                stats.num_reads_2++;
+                reads_dict[match.query].first = true;
+                reads_dict[match.query].third++; // To
+            }
+            else {
+                stats.num_reads_1++;
+                reads_dict[match.query].second = true;
+                reads_dict[match.query].fourth++;
+            }
         }
         else {
-            reads_dict[match.query].second = true;
-            reads_dict[match.query].fourth++;
+            stats.num_unmapped_reads++;
+            continue;
         }
 
         // store it to process later by looking up the dictionary
@@ -90,31 +91,32 @@ RUN_STATS consume_sam(const std::string &SAM_file, const std::string &format,\
         catch (...) {
             cout << "failing " << match.query << "   " << all_reads.size() << endl;
         }
-
     }
 
+    if ( show_status ) std::cout << endl << "Identifying multireads... " << std::flush;
     for( map<std::string, struct QUADRUPLE<bool, bool, unsigned int, unsigned int> >::iterator it = reads_dict.begin();
          it != reads_dict.end();
          it++) {
         if( !(it->second.first && it->second.second))
             stats.num_singleton_reads++;
         if( it->second.third > 1) {
-            stats.num_multireads++;
             multireads[it->first] = 0.0;
             stats.num_secondary_hits += it->second.third-1;
         }
         if( it->second.fourth  > 1) {
-            stats.num_multireads++;
             multireads[it->first] = 0.0;
             stats.num_secondary_hits += it->second.fourth-1;
         }
     }
+    stats.num_multireads += (int) multireads.size();
+    if (show_status) std::cout << "done." << std::endl;
 
     stats.num_distinct_reads_unmapped = stats.num_unmapped_reads;
     stats.num_distinct_reads_mapped = stats.num_mapped_reads - stats.num_secondary_hits;
 
+    // TODO: Remove this step if multireads are not going to be used
+    if (show_status) std::cout << "Determining multiread weights... " << std::flush;
     for ( vector<MATCH>::iterator it = all_reads.begin(); it != all_reads.end(); it++)  {
-
         if ( it->parity == 0  ) {
             if( reads_dict[it->query].first && reads_dict[it->query].second )
                 it->w = 0.5/static_cast<float>(reads_dict[it->query].third);
@@ -128,17 +130,17 @@ RUN_STATS consume_sam(const std::string &SAM_file, const std::string &format,\
                 it->w = 1/static_cast<float>(reads_dict[it->query].fourth);
         }
     }
+    if (show_status) std::cout << "done." << std::endl;
 
     delete parser;
     return stats;
 }
 
 
-void process_SAM(const std::string & reads_map_file, std::map<string, CONTIG> &contigs_dictionary,
-                 const std::string &reads_map_file_format,
-                 std::vector<MATCH> &all_reads,
-                 map<std::string, float > &multireads,
-                 bool show_status) {
+void process_alignments(std::map<string, CONTIG> &contigs_dictionary,
+                        std::vector<MATCH> &all_reads,
+                        map<std::string, float> &multireads,
+                        bool show_status) {
     /*
      * At this point, multireads is a map with only the keys (read names) entered and
      * has empty vector<string> objects as values - they are populated here.
@@ -150,11 +152,12 @@ void process_SAM(const std::string & reads_map_file, std::map<string, CONTIG> &c
     
     int i =0;
     
-    if( show_status ) std::cout << "Number of hits processed : " ;
+    if ( show_status ) std::cout << "Number of reads processed: " << std::endl;
     // iterate through individual hits/alignments
     for(vector<MATCH>::iterator it=all_reads.begin();  it!= all_reads.end(); it++ )  {
 
-        if( i >=_MAX ) break;
+        if( i >=_MAX )
+            break;
 
         if (show_status && i%10000==0) {
            std::cout << "\n\033[F\033[J";
@@ -235,13 +238,13 @@ void substring_coverage(std::map<string, CONTIG> &contigs_dictionary, const std:
                         map<std::string, float > &multireads, bool multi_reads) {
 
     if ( contigs_dictionary.find(contig) == contigs_dictionary.end() || contigs_dictionary[contig].L == 0 ) {
-        coverage.coverage = 0 ;
-        coverage.numreads = 0 ;
+        coverage.coverage = 0;
+        coverage.numreads = 0;
         coverage.sequence_length = end - start ;
         coverage.uncovered_length = 0;
     }
 
-    float numreads = 0;
+    double numreads = 0;
     float _coverage = 0;
     unsigned long uncovered_length = 0;
     unsigned long p_end = start;
@@ -262,7 +265,7 @@ void substring_coverage(std::map<string, CONTIG> &contigs_dictionary, const std:
             p_end = it->end;
 
         if( (start <= it->start && it->start <= end) ||  (start <= it->end && it->end <= end)  ) {
-            numreads += 1;
+            numreads++;
         }
 
         // the subsequent reads are going off the end of the orf
@@ -270,11 +273,10 @@ void substring_coverage(std::map<string, CONTIG> &contigs_dictionary, const std:
             break;
 
         if (multi_reads && it->multi) {
-            float read_multiplicity = multireads.find(it->name)->second;
+            double read_multiplicity = multireads.find(it->name)->second;
             numreads += 1.0/read_multiplicity;
         }
     }
-
 
     uncovered_length += (p_end > end ) ? 0 : (end - p_end);
 

@@ -19,6 +19,7 @@ int main( int argc, char **argv ){
         options.print_usage(argv[0]);
         exit(0);
     }
+    // Read the reference FASTA file
     map<string, CONTIG> contigs_dictionary;
     unsigned long total_contig_length = create_contigs_dictionary(options.contigs_file, contigs_dictionary);
 
@@ -49,10 +50,11 @@ int main( int argc, char **argv ){
         if( options.show_status ) 
             std::cout << "\n" << "Parsing alignments from SAM file " << *it << std::endl;
         _stats = consume_sam(*it, options.reads_map_file_format, all_reads, multireads, options.show_status);
-
         stats = stats + _stats;
-        process_SAM(*it, contigs_dictionary, options.reads_map_file_format, all_reads, multireads, options.show_status);
-        stats.num_multireads += (int) multireads.size();
+
+        if( options.show_status )
+            std::cout << "\n" << "Processing " << all_reads.size() << " aligned reads from " << *it << std::endl;
+        process_alignments(contigs_dictionary, all_reads, multireads, options.show_status);
 
         if( options.show_status )
             _stats.printStats(&std::cout);
@@ -77,7 +79,7 @@ int main( int argc, char **argv ){
  
 
     if ( options.show_status )
-        std::cout << "\nSorting the read matches... ";
+        std::cout << "\nSorting the read matches... " << std::flush;
     for (map<string, CONTIG>::iterator it = contigs_dictionary.begin(); it != contigs_dictionary.end(); it++) {
         std::sort(it->second.M.begin(), it->second.M.end(), compare_triplets);
 
@@ -92,10 +94,11 @@ int main( int argc, char **argv ){
         stats.num_distinct_reads = options.num_reads;
 
     float total_covered_length = 0.0;
-    float rpkm_sum = 0.0;
+    double rpkm_sum = 0.0;
+    char buf[1000];
     COVERAGE coverage;
     if (options.show_status)
-        std::cout << "Computing coverage and RPKM values for all contigs... ";
+        std::cout << "Computing coverage and RPKM values for all contigs... " << std::flush;
 
     // Write header to output csv
     *output << "Sample_name,Sequence_name,Reads_mapped,RPKM" << endl;
@@ -105,19 +108,19 @@ int main( int argc, char **argv ){
     for (map<string, CONTIG>::iterator it = contigs_dictionary.begin(); it != contigs_dictionary.end(); it++) {
         substring_coverage(contigs_dictionary, it->first, 1, it->second.L, coverage, 0, multireads, options.multi_reads);
         total_covered_length += coverage.coverage*contigs_dictionary[it->first].L;
-        it->second.rpkm = (1E9/ static_cast<float>(stats.num_distinct_reads))*
-                              (coverage.numreads/ static_cast<float>(coverage.sequence_length));
-        it->second.hits = static_cast<int>(coverage.numreads);
+        it->second.rpkm = (1E9/ static_cast<double>(stats.num_distinct_reads))*
+                              (coverage.numreads/ static_cast<double>(coverage.sequence_length));
+        it->second.hits = coverage.numreads;
         rpkm_sum += it->second.rpkm;
         // Write the sample-name, seq_name, number of hits, and RPKM
-        *output << options.output_file << ',' << it->first << ',' << it->second.hits <<  ',' << it->second.rpkm << endl;
+        sprintf(buf, "%2.1f,%2.3f", it->second.hits, it->second.rpkm);
+        *output << options.output_file << ',' << it->first << ',' << buf << endl;
     }
     rpkm_output.close();
 
     if (options.show_status)
         std::cout << "done." << endl;
 
-    char buf[1000];
     string summary_string;
     // Store the summary as a string and write it to stdout and optionally the stats file (if provided)
     std::cout << std::endl;

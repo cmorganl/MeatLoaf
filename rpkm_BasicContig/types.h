@@ -23,7 +23,7 @@ typedef struct _CONTIG {
      */
     unsigned long L;
     double rpkm;
-    int hits;
+    double hits;
     READ_DATA M;
 } CONTIG;
 
@@ -42,7 +42,7 @@ typedef struct _MATCH {
     bool parity; 
     bool mapped;
     bool orphan;
-//    bool multi;
+    bool multi;
     bool chimeric;
     bool singleton;
     float  w; //no idea what this does...
@@ -120,7 +120,7 @@ typedef struct _RUN_STATS {
 
 typedef struct _COVERAGE {
     float coverage;
-    float numreads;
-    unsigned int sequence_length, uncovered_length;
+    double numreads;
+    unsigned long sequence_length, uncovered_length;
 } COVERAGE;
 #endif //__RPKM_TYPE

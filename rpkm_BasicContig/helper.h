@@ -13,6 +13,9 @@ using namespace std;
 
 unsigned long create_contigs_dictionary(std::string contigs_file, std::map<std::string, CONTIG> &contigs_dictionary);
 
+/*
+ * Read the SAM file, storing the aligned reads in the all_reads vector and tracking the number of multireads
+ */
 RUN_STATS consume_sam(const std::string &SAM_file,
         const std::string &format,
         vector <MATCH> &all_reads,
@@ -23,11 +26,10 @@ RUN_STATS consume_sam(const std::string &SAM_file,
  * the names of all contigs in a string vector
  */
 
-void process_SAM(const std::string & reads_map_file, std::map<string, CONTIG> &contigs_dictionary,
-                 const std::string &reads_map_file_format,
-                 vector<MATCH> &all_reads,
-                 map<std::string, float > &multireads,
-                 bool show_status= false);
+void process_alignments(std::map<string, CONTIG> &contigs_dictionary,
+                        vector<MATCH> &all_reads,
+                        map<std::string, float> &multireads,
+                        bool show_status = false);
 
 void substring_coverage(std::map<string, CONTIG> &contigs_dictionary, const std::string &contig,
                         unsigned long start, unsigned long end,

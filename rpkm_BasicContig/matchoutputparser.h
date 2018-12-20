@@ -29,7 +29,7 @@ protected:
 };
 
 
-//subclass of the MathOutputParser
+//subclass of the MatchOutputParser
 class SamFileParser: virtual public MatchOutputParser {
 private:
       unsigned long count;
@@ -51,7 +51,6 @@ public:
             return 0;
      }
 };
-
 
 
 #endif //_MATHOUTPUTPARSER
