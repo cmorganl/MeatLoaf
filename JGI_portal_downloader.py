@@ -3,6 +3,7 @@
 import os
 import sys
 import re
+import io
 import argparse
 import pycurl
 import logging
@@ -16,7 +17,8 @@ c = pycurl.Curl()
 # export PYCURL_SSL_LIBRARY=nss
 # python3 -m pip install --compile --install-option="--with-nss" --no-cache-dir pycurl
 
-jgi_web = "https://genome.jgi.doe.gov/"
+website_url = "https://genome.jgi.doe.gov/"
+portal_path = "portal/ext-api/downloads/get-directory?organism="
 
 
 class MyFormatter(logging.Formatter):
@@ -108,19 +110,33 @@ def prep_logging(log_file_name=None, verbosity=False):
 def get_options():
     parser = argparse.ArgumentParser(description="Utility script for programmatically downloading all project files"
                                                  " from the JGI Portal. Details on how this works can be found at"
-                                                 " https://genome.jgi.doe.gov/portal/help/download.jsf#/api")
-    parser.add_argument("-p", "--portal_name", required=False, dest="name",
-                        help="Short portal name in the URL from the JGI's 'Downloads' page for this project")
-    parser.add_argument("-c", "--cookies", required=True,
-                        help="Path to the cookies file created by curl")
-    parser.add_argument("-o", "--output_dir", required=True, dest="output",
-                        help="Path to the directory to write all downloaded outputs")
-    parser.add_argument("-x", "--extensions", required=False, default=None,
-                        help="Only download files with these comma-separated extensions."
-                             " Example: pdf,fastq,fasta  [ DEFAULT = download all the things ]")
-    parser.add_argument("-d", "--dirs", required=False, default=None, dest="target_dirs",
-                        help="Only download files from these comma-separated directories."
-                             " Example: QC_Filtered_Raw_Data,Raw_Data  [ DEFAULT = download all the things ]")
+                                                 " https://genome.jgi.doe.gov/portal/help/download.jsf#/api",
+                                     add_help=False)
+    reqd = parser.add_argument_group("Required arguments")
+    user_cred = parser.add_argument_group("User credentials - only if you don't have cookies")
+    opts = parser.add_argument_group("Optional arguments")
+
+    reqd.add_argument("-p", "--portal_name", required=True, dest="name",
+                      help="Short portal name in the URL from the JGI's 'Downloads' page for this project")
+    reqd.add_argument("-o", "--output_dir", required=True, dest="output",
+                      help="Path to the directory to write all downloaded outputs")
+
+    opts.add_argument("-c", "--cookies", required=False, default=None,
+                      help="Path to the cookies file created by curl")
+    opts.add_argument("-x", "--extensions", required=False, default=None,
+                      help="Only download files with these comma-separated extensions."
+                           " Example: pdf,fastq,fasta  [ DEFAULT = download all the things ]")
+    opts.add_argument("-d", "--dirs", required=False, default=None, dest="target_dirs",
+                      help="Only download files from these comma-separated directories."
+                           " Example: QC_Filtered_Raw_Data,Raw_Data  [ DEFAULT = download all the things ]")
+    opts.add_argument("-h", "--help", action="help",
+                      help="show this help message and exit")
+
+    user_cred.add_argument("--username", dest="usr", required=False, default=None,
+                           help="Username (or email) linked to JGI single sign-on. Don't provide if you have cookies.")
+    user_cred.add_argument("--password", dest="pwd", required=False, default=None,
+                           help="Password for your JGI single sign-on account. Don't provide if you have cookies.")
+
     args = parser.parse_args()
 
     if not os.path.isdir(args.output):
@@ -142,6 +158,40 @@ def get_options():
     return args
 
 
+def bake_cookies(pwd: str, usr: str) -> str:
+    logging.error("Function is not yet supported. Must provide a cookie file for now.\n")
+    sys.exit(11)
+
+    cookies_file = os.getcwd() + os.sep + "cookies"
+    logging.info("Creating cookies file '" + cookies_file + "'... ")
+
+    # Basically equivalent to:
+    # curl 'https://signon-old.jgi.doe.gov/signon/create' \
+    # --data-urlencode 'login=USER_NAME' --data-urlencode 'password=USER_PASSWORD' -c cookies > /dev/null
+
+    # buffer = io.BytesIO()
+
+    c.setopt(c.URL, "https://signon-old.jgi.doe.gov/signon/create")
+    c.setopt(c.USERPWD, usr + ':' + pwd)
+    c.setopt(c.COOKIEJAR, cookies_file)
+    # c.setopt(c.WRITEFUNCTION, buffer.write)
+    c.perform()
+
+    # resp = buffer.getvalue()
+
+    logging.info("done.\n")
+
+    return cookies_file
+
+
+def get_file_deets_curl():
+    c.setopt(c.NOBODY, 1)
+    c.perform()
+    c.setopt(c.NOBODY, 0)
+
+    return
+
+
 def prep_and_curl(url_address, output_file, cookie_file):
     try:
         output_handler = open(output_file, 'wb')
@@ -151,10 +201,16 @@ def prep_and_curl(url_address, output_file, cookie_file):
 
     c.setopt(c.URL, url_address)
     c.setopt(c.COOKIEFILE, cookie_file)
+
+    get_file_deets_curl()
+
     c.setopt(c.WRITEDATA, output_handler)
+    c.setopt(pycurl.FOLLOWLOCATION, True)
     try:
         c.perform()
-    except pycurl.error:
+    except pycurl.error as error:
+        errno, errstr = error
+        logging.error("An error occurred while running curl: " + errstr + "\n")
         pass
 
     output_handler.close()
@@ -168,7 +224,7 @@ def dl_file_list(portal_name: str, cookies: str, file_xml: str) -> None:
         logging.error("Cookies file '" + cookies + "' doesn't exist!\n")
         sys.exit(3)
 
-    page_address = jgi_web + "portal/ext-api/downloads/get-directory?organism=" + portal_name
+    page_address = website_url + portal_path + portal_name
     prep_and_curl(page_address, file_xml, cookies)
 
     logging.info("done.\n")
@@ -232,7 +288,7 @@ def dl_files(dirs_n_files: dict, cookies, output: str, ext=None, target_dirs=Non
                 continue
             file_path = dir_path + file_name
             # There are some bad characters so we're going to clean them up here
-            file_address = jgi_web + re.sub(r"&amp;", '&', dirs_n_files[dir_name][file_name])
+            file_address = website_url + re.sub(r"&amp;", '&', dirs_n_files[dir_name][file_name])
 
             prep_and_curl(file_address, file_path, cookies)
             num_dl += 1
@@ -249,6 +305,10 @@ def main():
     args = get_options()
     log_file = args.output + "JGI_downloader_log.txt"
     prep_logging(log_file)
+
+    if not args.cookies:
+        args.cookies = bake_cookies(args.pwd, args.usr)
+    sys.exit()
 
     file_list = args.output + args.name + "_files.xml"
     dl_file_list(args.name, args.cookies, file_list)
