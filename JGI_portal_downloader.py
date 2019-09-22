@@ -107,6 +107,35 @@ def prep_logging(log_file_name=None, verbosity=False):
     return
 
 
+def progress(total_to_download, total_downloaded, total_to_upload=None, total_uploaded=None):
+    try:
+        percent_completed = (float(total_downloaded)*100) / total_to_download  # You are calculating amount uploaded
+        rate = round(percent_completed, ndigits=2)
+        completed_hash = "#" * int(rate)  # Calculate completed percentage
+        spaces = " " * (100 - percent_completed)  # Calculate remaining completed rate
+        buffer = '[%s%s] %s%%\n' % (completed_hash, spaces, rate)  # the pretty progress [####     ] 34%
+    except ZeroDivisionError:
+        buffer = ""
+    if buffer:
+        sys.stdout.write(buffer)
+        sys.stdout.flush()
+    return
+
+
+def curl_debug(debug_type, msg):
+    sys.stderr.write("debug: %s %s\n" % (repr(debug_type), repr(msg)))
+    sys.stderr.flush()
+
+
+def load_curl_opts():
+    c.setopt(pycurl.VERBOSE, False)
+    c.setopt(c.FOLLOWLOCATION, True)
+    c.setopt(c.NOPROGRESS, False)
+    c.setopt(pycurl.DEBUGFUNCTION, curl_debug)
+    c.setopt(c.XFERINFOFUNCTION, progress)
+    return
+
+
 def get_options():
     parser = argparse.ArgumentParser(description="Utility script for programmatically downloading all project files"
                                                  " from the JGI Portal. Details on how this works can be found at"
@@ -155,13 +184,14 @@ def get_options():
     if args.target_dirs:
         args.target_dirs = args.target_dirs.split(',')
 
+    if not args.cookies:
+        logging.error("Function is not yet supported. Must provide a cookie file for now - sorry!\n")
+        sys.exit(11)
+
     return args
 
 
 def bake_cookies(pwd: str, usr: str) -> str:
-    logging.error("Function is not yet supported. Must provide a cookie file for now.\n")
-    sys.exit(11)
-
     cookies_file = os.getcwd() + os.sep + "cookies"
     logging.info("Creating cookies file '" + cookies_file + "'... ")
 
@@ -185,40 +215,51 @@ def bake_cookies(pwd: str, usr: str) -> str:
 
 
 def get_file_deets_curl():
+    c.setopt(c.HEADER, 0)
     c.setopt(c.NOBODY, 1)
     c.perform()
+    print(c.getinfo(c.CONTENT_LENGTH_DOWNLOAD))
     c.setopt(c.NOBODY, 0)
-
-    return
+    print(c.getinfo(c.CONTENT_LENGTH_DOWNLOAD))
+    sys.exit()
+    return c.getinfo(c.CONTENT_LENGTH_DOWNLOAD)
 
 
 def prep_and_curl(url_address, output_file, cookie_file):
     try:
         output_handler = open(output_file, 'wb')
     except IOError:
-        logging.error("Unable to open xml file list " + output_file + " for writing!\n")
+        logging.error("Unable to open file '" + output_file + "' for writing!\n")
         sys.exit(3)
 
     c.setopt(c.URL, url_address)
     c.setopt(c.COOKIEFILE, cookie_file)
 
-    get_file_deets_curl()
+    # filesize = get_file_deets_curl()
+    filesize = 100
+    if filesize < 0:
+        logging.error("Size of " + output_file + " less than 0b. Something went wrong when retrieving it.\n")
+        sys.exit(7)
+    elif filesize == 0:
+        logging.debug("Size of " + output_file + " is 0b. Creating it and moving on.\n")
+        open(output_file, 'w').close()
+    else:
+        c.setopt(c.WRITEDATA, output_handler)
+        # c.setopt(c.INFILESIZE, filesize)
 
-    c.setopt(c.WRITEDATA, output_handler)
-    c.setopt(pycurl.FOLLOWLOCATION, True)
-    try:
-        c.perform()
-    except pycurl.error as error:
-        errno, errstr = error
-        logging.error("An error occurred while running curl: " + errstr + "\n")
-        pass
+        try:
+            c.perform()
+        except pycurl.error as error:
+            errno, errstr = error
+            logging.error("An error occurred while running curl: " + errstr + "\n")
+            pass
 
-    output_handler.close()
+        output_handler.close()
     return
 
 
 def dl_file_list(portal_name: str, cookies: str, file_xml: str) -> None:
-    logging.info("Downloading XML with listing all files... ")
+    logging.info("Downloading XML-file listing all target files... ")
 
     if not os.path.isfile(cookies):
         logging.error("Cookies file '" + cookies + "' doesn't exist!\n")
@@ -279,7 +320,7 @@ def dl_files(dirs_n_files: dict, cookies, output: str, ext=None, target_dirs=Non
         if target_dirs and dir_name not in target_dirs:
             continue
 
-        logging.info("Downloading files in " + dir_name + "... ")
+        logging.info("Downloading files in " + dir_name + "\n")
         dir_path = output + dir_name + os.sep
         if not os.path.isdir(dir_path):
             os.mkdir(dir_path)
@@ -289,10 +330,11 @@ def dl_files(dirs_n_files: dict, cookies, output: str, ext=None, target_dirs=Non
             file_path = dir_path + file_name
             # There are some bad characters so we're going to clean them up here
             file_address = website_url + re.sub(r"&amp;", '&', dirs_n_files[dir_name][file_name])
-
+            logging.debug("Downloading " + file_name + "... ")
             prep_and_curl(file_address, file_path, cookies)
+            logging.debug("done.\n")
             num_dl += 1
-        logging.info("done.\n")
+        logging.info("Finished downloading all file in " + dir_name + ".\n")
 
     if num_dl == 0:
         logging.error("No files were downloaded.\n")
@@ -305,10 +347,10 @@ def main():
     args = get_options()
     log_file = args.output + "JGI_downloader_log.txt"
     prep_logging(log_file)
+    load_curl_opts()
 
     if not args.cookies:
         args.cookies = bake_cookies(args.pwd, args.usr)
-    sys.exit()
 
     file_list = args.output + args.name + "_files.xml"
     dl_file_list(args.name, args.cookies, file_list)
