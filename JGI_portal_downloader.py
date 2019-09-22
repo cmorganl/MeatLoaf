@@ -112,7 +112,7 @@ def progress(total_to_download, total_downloaded, total_to_upload=None, total_up
         percent_completed = (float(total_downloaded)*100) / total_to_download  # You are calculating amount uploaded
         rate = round(percent_completed, ndigits=2)
         completed_hash = "#" * int(rate)  # Calculate completed percentage
-        spaces = " " * (100 - percent_completed)  # Calculate remaining completed rate
+        spaces = " " * (100 - int(percent_completed))  # Calculate remaining completed rate
         buffer = '[%s%s] %s%%\n' % (completed_hash, spaces, rate)  # the pretty progress [####     ] 34%
     except ZeroDivisionError:
         buffer = ""
@@ -130,9 +130,12 @@ def curl_debug(debug_type, msg):
 def load_curl_opts():
     c.setopt(pycurl.VERBOSE, False)
     c.setopt(c.FOLLOWLOCATION, True)
-    c.setopt(c.NOPROGRESS, False)
+    # c.setopt(c.NOPROGRESS, False)
     c.setopt(pycurl.DEBUGFUNCTION, curl_debug)
-    c.setopt(c.XFERINFOFUNCTION, progress)
+    try:
+        c.setopt(c.XFERINFOFUNCTION, progress)
+    except AttributeError:
+        c.setopt(c.PROGRESSFUNCTION, progress)
     return
 
 
