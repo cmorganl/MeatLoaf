@@ -20,7 +20,7 @@ jgi_web = "https://genome.jgi.doe.gov/"
 
 def get_options():
     parser = argparse.ArgumentParser(description="Utility script for programmatically downloading all project files"
-                                                 "from the JGI Portal. Details on how this works can be found at"
+                                                 " from the JGI Portal. Details on how this works can be found at"
                                                  " https://genome.jgi.doe.gov/portal/help/download.jsf#/api")
     parser.add_argument("-p", "--portal_name", required=False, dest="name",
                         help="Short portal name in the URL from the JGI's 'Downloads' page for this project")
@@ -31,6 +31,9 @@ def get_options():
     parser.add_argument("-x", "--extensions", required=False, default=None,
                         help="Only download files with these comma-separated extensions."
                              " Example: pdf,fastq,fasta  [ DEFAULT = download all the things ]")
+    parser.add_argument("-d", "--dirs", required=False, default=None, dest="target_dirs",
+                        help="Only download files from these comma-separated directories."
+                             " Example: QC_Filtered_Raw_Data,Raw_Data  [ DEFAULT = download all the things ]")
     args = parser.parse_args()
 
     if not os.path.isdir(args.output):
@@ -45,6 +48,9 @@ def get_options():
 
     if args.extensions:
         args.extensions = args.extensions.split(',')
+        
+    if args.target_dirs:
+        args.target_dirs = args.target_dirs.split(',')
 
     return args
 
@@ -122,9 +128,12 @@ def parse_files_xml(file_xml: str, ext=None) -> dict:
     return dirs_n_files
 
 
-def dl_files(dirs_n_files: dict, cookies, output: str, ext=None) -> None:
+def dl_files(dirs_n_files: dict, cookies, output: str, ext=None, target_dirs=None) -> None:
     num_dl = 0
     for dir_name in sorted(dirs_n_files):
+        if target_dirs and dir_name not in target_dirs:
+            continue
+
         sys.stdout.write("Downloading files in " + dir_name + "... ")
         sys.stdout.flush()
         dir_path = output + dir_name + os.sep
@@ -153,7 +162,7 @@ def main():
     file_list = args.output + args.name + "_files.xml"
     dl_file_list(args.name, args.cookies, file_list)
     addresses = parse_files_xml(file_list, args.extensions)
-    dl_files(addresses, args.cookies, args.output, args.extensions)
+    dl_files(addresses, args.cookies, args.output, args.extensions, args.target_dirs)
     return
 
 
