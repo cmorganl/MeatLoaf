@@ -5,12 +5,13 @@ __author__ = 'Connor Morgan-Lang'
 import argparse
 import sys
 import re
+import os
 
 
 def get_options():
     parser = argparse.ArgumentParser(add_help=False)
     required_args = parser.add_argument_group("Required arguments")
-    required_args.add_argument("-a", "--alignment_table",
+    required_args.add_argument("-a", "--alignment_table", dest="aln_tab",
                                help="tabular (tsv-delimited) file output by fr-hit",
                                required=True)
     required_args.add_argument("-r", "--reference",
@@ -30,8 +31,8 @@ def get_options():
     optopt = parser.add_argument_group("Optional options")
     optopt.add_argument('-g', "--group", default="contig", choices=["contig", "genome"], required=False,
                         help="Reports summary stats for individual contigs or entire reference.")
-    optopt.add_argument('-o', '--output', default='./output/', required=False,
-                        help='output directory [DEFAULT = ./output/]')
+    optopt.add_argument('-o', '--output', default='./fr-hit_output_summary.tsv', required=False,
+                        help='output file [DEFAULT = ./fr-hit_output_summary.tsv]')
     optopt.add_argument('-i', '--identity',
                         help='the sequence identity threshold. Anything lower than this value is removed. '
                              '[ DEFAULT = 50 ]',
@@ -114,14 +115,14 @@ class RefSeq:
         return
 
     def get_info(self):
-        return ['"' + self.name + '"',
+        return [self.name,
                 str(self.length),
                 str(self.num_f), str(self.num_r),
                 str(self.fpkm), str(self.tpm)]
 
 
 def read_frhit_table(args):
-    hit_table = args.alignment_table
+    hit_table = args.aln_tab
     min_proportion = args.alignment_proportion
     min_identity = args.identity
     hits_list = list()
@@ -260,7 +261,7 @@ def write_summary(args, genome_dict):
     except IOError:
         raise IOError("Unable to open " + args.output + " for writing!\n")
 
-    output_buffer = "\t".join(["Reference", "Query"]) + "\n"
+    output_buffer = "\t".join(["Reference", "Query", "SeqName", "SeqLen", "Forward", "Reverse", "FPKM", "TPM"]) + "\n"
     for contig_header in genome_dict.keys():
         ref_seq = genome_dict[contig_header]  # type: RefSeq
         # print('\t'.join(ref_seq.get_info()))
