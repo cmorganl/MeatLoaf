@@ -126,9 +126,9 @@ int Options::FetchArguments(int argc, char* argv[]) {
 }
 
 void write_subset_to_output(Fasta* genome, string output, int partition) {
-    int seqs_written;
-    int seqs_parsed = 0;
-    int num_seqs_per = genome->N_contigs / partition;
+    long seqs_written;
+    long seqs_parsed = 0;
+    long num_seqs_per = genome->N_contigs / partition;
     string header;
     string output_file;
     std::ofstream fa_out;
@@ -163,48 +163,46 @@ void write_subset_to_output(Fasta* genome, string output, int partition) {
     return;
 }
 
-std::vector<int> sort_contigs_by_length(Fasta* seqs, bool verbose) {
-    int seq_lengths[seqs->N_contigs];
-    int x;
+std::vector<long> sort_contigs_by_length(Fasta* seqs, bool verbose) {
+    std::vector< long > seq_lengths (seqs->N_contigs);
     if (verbose)
-        std::cout << "Sorting the contigs by length... ";
-    for (x = 0; x < seqs->N_contigs; x++) {
+        std::cout << "Sorting the sequences by length... " << std::flush;
+    for (int x = 0; x < seqs->N_contigs; x++) {
         if ( seqs->sequences[x] == NULL) {
             fprintf(stderr, "ERROR: A sequence was improperly loaded into FASTA!\n");
             cout << "Index " << x << " (" << seqs->header_base.name[x] << ") is NULL." << endl;
             exit(-1);
         }
-        seq_lengths[x] = strlen(seqs->sequences[x]);
-        if (seq_lengths[x] != seqs->header_base.seq_length[x] )
+        seq_lengths.at(x) = strlen(seqs->sequences[x]);
+        if (seq_lengths.at(x) != seqs->header_base.seq_length[x] )
             fprintf(stderr, "ERROR: Sequences and header_base are not matching!\n");
     }
-    std::vector<int> vector_lengths (seq_lengths, seq_lengths + sizeof(seq_lengths) / sizeof(int));
-    std::sort (vector_lengths.begin(), vector_lengths.end());
+    std::sort (seq_lengths.begin(), seq_lengths.end());
 
     if (verbose)
         std::cout << "done." << endl;
-    return vector_lengths;
+    return seq_lengths;
 }
 
-int median_seq_length(std::vector<int> vector_lengths, int num_seqs) {
+
+int median_seq_length(std::vector<long int> vector_lengths, long int num_seqs) {
     int half = num_seqs/2;
     return vector_lengths[half];
 }
 
 
-float calculateSD(std::vector<int> data) {
+float calculateSD(std::vector<long int> data) {
     float sum = 0.0;
     float mean;
     float standardDeviation = 0.0;
 
-    for (std::vector<int>::iterator it = data.begin(); it != data.end(); ++it)
+    for (std::vector<long int>::iterator it = data.begin(); it != data.end(); ++it)
         sum += *it;
     mean = sum/data.size();
 
-    for (std::vector<int>::iterator it = data.begin(); it != data.end(); ++it)
+    for (std::vector<long int>::iterator it = data.begin(); it != data.end(); ++it)
         standardDeviation += pow(*it - mean, 2);
 
-    cout << sqrt(standardDeviation / data.size()) << endl;
     return sqrt(standardDeviation / data.size());
 }
 
@@ -218,18 +216,24 @@ int main(int argc, char *argv[]) {
     }
     Fasta genome(options.input);
 
+    if (options.verbose)
+        std::cout << "Reading " << options.input << "... " << std::flush;
     int return_status = genome.parse_fasta(options.min_length);
+    if (options.verbose)
+        std::cout << "done." << std::endl;
+
     if (return_status > 0)
         fprintf(stderr, "ERROR: The input was not parsed correctly (N_contigs differs from vector size)!");
 
     if (options.verbose) {
-        std::vector<int> sorted_seq_lengths = sort_contigs_by_length(&genome, options.verbose);
-        std::cout << "Longest sequence = " << sorted_seq_lengths.at( genome.N_contigs - 1) << std::endl;
-        std::cout << "Shortest sequence = " << sorted_seq_lengths[0] << std::endl;
-        std::cout << "Median length = " << median_seq_length(sorted_seq_lengths, genome.N_contigs) << std::endl;
         std::cout << "Number of sequences = " << genome.N_contigs << endl;
         std::cout << "Number of bases in file = " << genome.genome_length << std::endl;
+        std::vector<long int> sorted_seq_lengths = sort_contigs_by_length(&genome, options.verbose);
         float sd = calculateSD(sorted_seq_lengths);
+        std::cout << "Longest sequence = " << sorted_seq_lengths.at( genome.N_contigs - 1) << std::endl;
+        std::cout << "Shortest sequence = " << sorted_seq_lengths.at(0) << std::endl;
+        std::cout << "Median length = " << median_seq_length(sorted_seq_lengths, genome.N_contigs) << std::endl;
+        std::cout << "Sequence length standard deviation = " << sd << std::endl;
 //        for (std::vector<int>::iterator it = sorted_seq_lengths.begin(); it != sorted_seq_lengths.end(); ++it)
 //            std::cout << ' ' << *it;
 //        std::cout << '\n';
