@@ -37,15 +37,15 @@ public:
     char **sequences;
     long int N_contigs;
     long int genome_length;
-    int longest_contig;
+    long int longest_contig;
     ifstream *fasta_file;
 
     // Class functions
     std::vector<std::string> retrieve_headers() { return header_base.name; };
     char ** retrieve_sequences() { return sequences; };
     int parse_fasta(int min_length);
-    int find_longest_contig();
-    int find_sequence_length(int number);
+    long find_longest_contig();
+    long find_sequence_length(long number);
     int writeNx(std::string output, bool verbose);
 };
 

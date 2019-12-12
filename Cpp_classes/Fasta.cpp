@@ -105,7 +105,7 @@ int Fasta::writeNx(string output, bool verbose) {
     return 1;
 }
 
-int Fasta::find_longest_contig() {
+long Fasta::find_longest_contig() {
     int x;
     int size = 0;
     cout << "Number of contigs = " << N_contigs << endl;
@@ -127,7 +127,7 @@ int Fasta::find_longest_contig() {
     return longest_contig;
 }
 
-int Fasta::find_sequence_length(int number) {
+long Fasta::find_sequence_length(long number) {
     if ( number <= N_contigs )
         return this->header_base.seq_length[number];
     else {
