@@ -42,6 +42,9 @@ def get_options():
                              "[ DEFAULT = 0.5 ]",
                         default=0.5,
                         type=float)
+    optopt.add_argument("-l", "--library",
+                        help="The sequencing library type, either paired-end (pe) or single-end (se).",
+                        default="pe", choices=["pe", "se"])
 
     miscellaneous_opts = parser.add_argument_group("Miscellaneous options")
     miscellaneous_opts.add_argument('--overwrite', action='store_true', default=False,
@@ -302,6 +305,7 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
             genome_ref.num_neg += ref_seq.num_neg
             genome_ref.fpkm += ref_seq.fpkm
             genome_ref.tpm += ref_seq.tpm
+            genome_ref.weight_sum += ref_seq.weight_sum
         ref_seqs = {genome_ref.name: genome_ref}
     else:
         pass
@@ -365,9 +369,9 @@ def main():
     args = get_options()
     hits_list = read_frhit_table(args.aln_tab, args.alignment_proportion, args.identity, args.verbose)
     genome_dict = read_fasta(args)
-    distribute_read_weights(hits_list, "pe", args.verbose)
+    distribute_read_weights(hits_list, args.library, args.verbose)
     add_recruitments(hits_list, genome_dict)
-    # genome_dict = group_by(genome_dict, args.group)
+    genome_dict = group_by(genome_dict, args.group)
     calculate_normalization_metrics(genome_dict, args.num_reads)
     write_summary(args, genome_dict)
 
