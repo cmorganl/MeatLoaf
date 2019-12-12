@@ -89,21 +89,20 @@ class RefSeq:
         self.name = header
         self.sequence = sequence
         self.length = len(sequence)
-        self.num_f = 0
-        self.num_r = 0
+        self.num_pos = 0
+        self.num_neg = 0
         self.weight_sum = 0
         self.fpkm = 0
         self.rpk = 0
         self.tpm = 0
 
-    # TODO: Update the calculation functions using weight_sum instead of sum(num_f, num_r)
+    # TODO: Update the calculation functions using weight_sum instead of sum(num_pos, num_neg)
     def calc_fpkm(self, num_reads):
-        mmr = float(num_reads/1000000)
-        fragments = self.num_f + self.num_r
-        if fragments == 0:
+        mmr = float(num_reads/1E6)
+        if self.weight_sum == 0:
             self.fpkm = 0
         else:
-            self.fpkm = float((fragments/self.length)/mmr)
+            self.fpkm = float((self.weight_sum/self.length)/mmr)
         return
 
     def calc_tpm(self, denominator) -> None:
@@ -115,6 +114,8 @@ class RefSeq:
         :param denominator: The per-million scaling factor
         :return: None
         """
+        if self.weight_sum == 0:
+            return
         self.tpm = self.rpk/denominator
         return
 
@@ -127,7 +128,7 @@ class RefSeq:
         """
         return [self.name,
                 str(self.length),
-                str(self.num_f), str(self.num_r),
+                str(self.num_pos), str(self.num_neg),
                 str(self.fpkm), str(self.tpm)]
 
 
@@ -208,7 +209,17 @@ def read_fasta(args):
     return genome_dict
 
 
-def add_recruitments(hits_list, genome_dict):
+def add_recruitments(hits_list, genome_dict) -> None:
+    """
+    Iterates through the list of alignments/hits and increments the number of reads aligned to either the
+     positive (num_pos) or negative (num_neg) strand of the reference sequence. The RefSeq's weight_sum variable is also
+     increased according to a particular alignment's weight, which is determined by the number of different reference
+     sequences it aligned to and whether the library sequenced was paired-end or single-end.
+    
+    :param hits_list: A list of Mapping instances
+    :param genome_dict: A dictionary of RefSeq instances indexed by their respective headers
+    :return: None
+    """
     header_replacements = dict()
 
     for recruitment in hits_list:  # type: Mapping
@@ -234,9 +245,9 @@ def add_recruitments(hits_list, genome_dict):
 
         ref_seq = genome_dict[header]  # type: RefSeq
         if recruitment.strand == '+':
-            ref_seq.num_f += 1
+            ref_seq.num_pos += 1
         elif recruitment.strand == '-':
-            ref_seq.num_r += 1
+            ref_seq.num_neg += 1
         ref_seq.weight_sum += recruitment.weight
 
     return
@@ -245,21 +256,28 @@ def add_recruitments(hits_list, genome_dict):
 def calculate_normalization_metrics(genome_dict: dict, sampled_reads: int) -> None:
     """
     Calculates the normalized abundance values for each header's RefSeq instance in genome_dict
+        1. Reads per kilobase (RPK) is calculated using the reference sequence's length and number of reads (provided
+        by the user via CLI)
+        2. Fragments per kilobase per million mappable reads (FPKM) is calculated from the number of fragments
+        (this is different from reads by, in a paired-end library, forward and reverse pair makes up one fragment)
+        normalized by the reference sequence length and the number of reads mapped.
+        2. Transcripts per million (TPM) is calculated similarly to FPKM but the order of operations is different.
 
     :param genome_dict: A dictionary of RefSeq instances indexed by headers (sequence names)
     :param sampled_reads: The number of reads sequenced (not aligned). Required for normalizing by sequencing depth
     :return: None
     """
-    rpk_sum = 0
+    rpk_sum = 0  # The total reads per kilobase (RPK) of all reference sequences
     for header in sorted(genome_dict.keys()):
         ref_seq = genome_dict[header]
         ref_seq.calc_fpkm(sampled_reads)
-        ref_seq.rpk = sampled_reads/(ref_seq.length/1000)
+        ref_seq.rpk = sampled_reads/(ref_seq.length/1E3)
         rpk_sum += ref_seq.rpk
 
     denominator = rpk_sum / 1E6
     for header in genome_dict.keys():
-        genome_dict[header].calc_tpm(denominator)
+        ref_seq = genome_dict[header]  # type: RefSeq
+        ref_seq.calc_tpm(denominator)
 
     return
 
@@ -280,8 +298,8 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
         for seq_name in ref_seqs:
             ref_seq = ref_seqs[seq_name]  # type: RefSeq
             genome_ref.length += ref_seq.length
-            genome_ref.num_f += ref_seq.num_f
-            genome_ref.num_r += ref_seq.num_r
+            genome_ref.num_pos += ref_seq.num_pos
+            genome_ref.num_neg += ref_seq.num_neg
             genome_ref.fpkm += ref_seq.fpkm
             genome_ref.tpm += ref_seq.tpm
         ref_seqs = {genome_ref.name: genome_ref}
@@ -328,7 +346,7 @@ def write_summary(args, genome_dict):
     except IOError:
         raise IOError("Unable to open " + args.output + " for writing!\n")
 
-    output_buffer = "\t".join(["Reference", "Query", "SeqName", "SeqLen", "Forward", "Reverse", "FPKM", "TPM"]) + "\n"
+    output_buffer = "\t".join(["Reference", "Query", "SeqName", "SeqLen", "Positive", "Negative", "FPKM", "TPM"]) + "\n"
     for contig_header in genome_dict.keys():
         ref_seq = genome_dict[contig_header]  # type: RefSeq
         # print('\t'.join(ref_seq.get_info()))
@@ -349,7 +367,7 @@ def main():
     genome_dict = read_fasta(args)
     distribute_read_weights(hits_list, "pe", args.verbose)
     add_recruitments(hits_list, genome_dict)
-    genome_dict = group_by(genome_dict, args.group)
+    # genome_dict = group_by(genome_dict, args.group)
     calculate_normalization_metrics(genome_dict, args.num_reads)
     write_summary(args, genome_dict)
 
