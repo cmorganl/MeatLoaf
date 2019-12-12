@@ -5,6 +5,7 @@ __author__ = 'Connor Morgan-Lang'
 import argparse
 import sys
 import re
+from os import path
 
 
 def get_options():
@@ -30,6 +31,11 @@ def get_options():
     optopt = parser.add_argument_group("Optional options")
     optopt.add_argument('-g', "--group", default="contig", choices=["contig", "genome"], required=False,
                         help="reports summary stats for individual contigs or entire reference. [ DEFAULT = contig ]")
+    optopt.add_argument('-x', "--variables", required=False, dest="grouping_vars",
+                        help="If the output contains several genomes, this can be either a file or comma-separated list"
+                             "of prefixes that relates contigs from the same genome to each other.",
+                        default=None,
+                        type=str)
     optopt.add_argument('-o', '--output', default='./fr-hit_output_summary.tsv', required=False,
                         help='the output file [ DEFAULT = ./fr-hit_output_summary.tsv ]')
     optopt.add_argument('-i', '--identity',
@@ -60,7 +66,14 @@ def get_options():
     if args.alignment_proportion > 1:
         sys.stderr.write("ERROR: `--alignment_proportion` x must be 0 < x < 1!\n")
         sys.stderr.write("Exiting...\n")
-        sys.exit()
+        sys.exit(3)
+
+    if args.grouping_vars:
+        if path.isfile(args.grouping_vars):
+            # TODO: read file containing the vars
+            pass
+        else:
+            args.grouping_vars = args.grouping_vars.split(',')
 
     return args
 
@@ -99,7 +112,15 @@ class RefSeq:
         self.rpk = 0
         self.tpm = 0
 
-    # TODO: Update the calculation functions using weight_sum instead of sum(num_pos, num_neg)
+    def aggregate(self, ref_seq) -> None:
+        self.length += ref_seq.length
+        self.num_pos += ref_seq.num_pos
+        self.num_neg += ref_seq.num_neg
+        self.weight_sum += ref_seq.weight_sum
+        self.fpkm += ref_seq.fpkm
+        self.rpk += ref_seq.rpk
+        self.tpm += ref_seq.tpm
+
     def calc_fpkm(self, num_reads):
         mmr = float(num_reads/1E6)
         if self.weight_sum == 0:
@@ -293,6 +314,7 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
     :param grouping_vars:
     :return:
     """
+    grouped_ref_seqs = {}
     if grouping_vars is None:
         grouping_vars = []
     if grouping == "genome":
@@ -300,13 +322,25 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
         genome_ref = RefSeq("Reference", "")
         for seq_name in ref_seqs:
             ref_seq = ref_seqs[seq_name]  # type: RefSeq
-            genome_ref.length += ref_seq.length
-            genome_ref.num_pos += ref_seq.num_pos
-            genome_ref.num_neg += ref_seq.num_neg
-            genome_ref.fpkm += ref_seq.fpkm
-            genome_ref.tpm += ref_seq.tpm
-            genome_ref.weight_sum += ref_seq.weight_sum
-        ref_seqs = {genome_ref.name: genome_ref}
+            genome_ref.aggregate(ref_seq)
+        grouped_ref_seqs[genome_ref.name] = genome_ref
+        return grouped_ref_seqs
+    elif grouping_vars:
+        ref_names = list(ref_seqs.keys())
+        for var in grouping_vars:
+            # TODO: Ensure all the vars are found at least once
+            genome_ref = RefSeq(var, "")
+            i = 0
+            while i < len(ref_names):
+                ref = ref_names[i]
+                if re.search(var, ref):
+                    ref_seq = ref_seqs[ref]  # type: RefSeq
+                    genome_ref.aggregate(ref_seq)
+                    ref_names.pop(i)
+                else:
+                    i += 1
+            grouped_ref_seqs[genome_ref.name] = genome_ref
+        return grouped_ref_seqs
     else:
         pass
 
@@ -371,8 +405,8 @@ def main():
     genome_dict = read_fasta(args)
     distribute_read_weights(hits_list, args.library, args.verbose)
     add_recruitments(hits_list, genome_dict)
-    genome_dict = group_by(genome_dict, args.group)
     calculate_normalization_metrics(genome_dict, args.num_reads)
+    genome_dict = group_by(genome_dict, args.group, args.grouping_vars)
     write_summary(args, genome_dict)
 
 
