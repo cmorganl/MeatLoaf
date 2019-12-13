@@ -70,8 +70,8 @@ def get_options():
 
     if args.grouping_vars:
         if path.isfile(args.grouping_vars):
-            # TODO: read file containing the vars
-            pass
+            with open(args.grouping_vars) as groups_handler:
+                args.grouping_vars = [line.strip() for line in groups_handler.readlines()]
         else:
             args.grouping_vars = args.grouping_vars.split(',')
 
@@ -293,7 +293,9 @@ def calculate_normalization_metrics(genome_dict: dict, sampled_reads: int) -> No
     """
     rpk_sum = 0  # The total reads per kilobase (RPK) of all reference sequences
     for header in sorted(genome_dict.keys()):
-        ref_seq = genome_dict[header]
+        ref_seq = genome_dict[header]  # type: RefSeq
+        if ref_seq.weight_sum == 0:
+            continue
         ref_seq.calc_fpkm(sampled_reads)
         ref_seq.rpk = sampled_reads/(ref_seq.length/1E3)
         rpk_sum += ref_seq.rpk
@@ -318,7 +320,6 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
     if grouping_vars is None:
         grouping_vars = []
     if grouping == "genome":
-        # TODO: Allow for a grouping variable so that the genome-wise groups can be defined and not assumed to be all sequences in the FASTA and/or alignment table
         genome_ref = RefSeq("Reference", "")
         for seq_name in ref_seqs:
             ref_seq = ref_seqs[seq_name]  # type: RefSeq
@@ -328,8 +329,8 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
     elif grouping_vars:
         ref_names = list(ref_seqs.keys())
         for var in grouping_vars:
-            # TODO: Ensure all the vars are found at least once
             genome_ref = RefSeq(var, "")
+            found = False
             i = 0
             while i < len(ref_names):
                 ref = ref_names[i]
@@ -337,8 +338,12 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
                     ref_seq = ref_seqs[ref]  # type: RefSeq
                     genome_ref.aggregate(ref_seq)
                     ref_names.pop(i)
+                    found = True
                 else:
                     i += 1
+            if not found:
+                sys.stderr.write("ERROR: Unable to find grouping variable '%s' in reference sequence names.\n" % var)
+                sys.exit(3)
             grouped_ref_seqs[genome_ref.name] = genome_ref
         return grouped_ref_seqs
     else:
@@ -385,7 +390,7 @@ def write_summary(args, genome_dict):
         raise IOError("Unable to open " + args.output + " for writing!\n")
 
     output_buffer = "\t".join(["Reference", "Query", "SeqName", "SeqLen", "Positive", "Negative", "FPKM", "TPM"]) + "\n"
-    for contig_header in genome_dict.keys():
+    for contig_header in sorted(genome_dict, key=lambda x: genome_dict[x].weight_sum, reverse=True):
         ref_seq = genome_dict[contig_header]  # type: RefSeq
         # print('\t'.join(ref_seq.get_info()))
         output_buffer += args.reference + '\t' + args.query + '\t' + '\t'.join(ref_seq.get_info()) + "\n"
