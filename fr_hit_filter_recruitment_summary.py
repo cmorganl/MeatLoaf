@@ -29,7 +29,7 @@ def get_options():
                                type=int)
 
     optopt = parser.add_argument_group("Optional options")
-    optopt.add_argument('-g', "--group", default="contig", choices=["contig", "genome"], required=False,
+    optopt.add_argument('-g', "--group", default="contig", choices=["contig", "genome", "variable"], required=False,
                         help="reports summary stats for individual contigs or entire reference. [ DEFAULT = contig ]")
     optopt.add_argument('-x', "--variables", required=False, dest="grouping_vars",
                         help="If the output contains several genomes, this can be either a file or comma-separated list"
@@ -68,14 +68,25 @@ def get_options():
         sys.stderr.write("Exiting...\n")
         sys.exit(3)
 
-    if args.grouping_vars:
-        if path.isfile(args.grouping_vars):
-            with open(args.grouping_vars) as groups_handler:
-                args.grouping_vars = [line.strip() for line in groups_handler.readlines()]
-        else:
-            args.grouping_vars = args.grouping_vars.split(',')
-
     return args
+
+
+def read_group_vars(grouping_vars: str) -> list:
+    """
+    Turns the args.grouping_vars string into a list if it either points to a file or is a comma-separated list of
+    strings provided on the command-line.
+
+    :param grouping_vars: String representing either a file path or a list of strings
+    :return: List of strings that will be used to group contigs
+    """
+    vars_list = []
+    if grouping_vars:
+        if path.isfile(grouping_vars):
+            with open(grouping_vars) as groups_handler:
+                vars_list = [line.strip() for line in groups_handler.readlines()]
+        else:
+            vars_list = grouping_vars.split(',')
+    return vars_list
 
 
 class Mapping:
@@ -174,6 +185,10 @@ def read_frhit_table(hit_table: str, min_proportion: float, min_identity: int, v
     except IOError:
         raise IOError("ERROR: Unable to open " + hit_table + " for reading!\n")
 
+    if verbose:
+        sys.stdout.write("Reading fr-hit alignment table... ")
+        sys.stdout.flush()
+
     line = input_handler.readline()
     # ReadName	ReadLength	E-value	AlignmentLength	Begin	End	Strand	Identity	ReferenceSequenceName	Begin	End
     if not re.match(r'^\S+\t\S+\t\S+\t[0-9]+\t[0-9]+\t[0-9]+\t[+-]\t\S+\t\S+\t[0-9]+\t[0-9]+$', line):
@@ -196,6 +211,7 @@ def read_frhit_table(hit_table: str, min_proportion: float, min_identity: int, v
     input_handler.close()
 
     if verbose:
+        sys.stdout.write("done.\n")
         sys.stdout.write(str(x) + " lines in alignment table.\n")
         sys.stdout.write(str(len(hits_list)) + " alignments passing thresholds.\n")
         sys.stdout.flush()
@@ -203,11 +219,22 @@ def read_frhit_table(hit_table: str, min_proportion: float, min_identity: int, v
     return hits_list
 
 
-def read_fasta(args):
+def read_fasta(fasta_file, verbose=False) -> dict:
+    """
+    Its all in the title.
+
+    :param fasta_file: Path to a file in FASTA format
+    :param verbose: Boolean controlling the verbosity of standard output statements
+    :return: Dictionary of RefSeq instances, one for each sequence read from FASTA, indexed by sequence names
+    """
     try:
-        fasta_handler = open(args.genome, 'r')
+        fasta_handler = open(fasta_file, 'r')
     except IOError:
-        raise IOError("ERROR: Unable to open the FASTA file " + args.genome + " for reading!")
+        raise IOError("ERROR: Unable to open the FASTA file " + fasta_file + " for reading!")
+
+    if verbose:
+        sys.stdout.write("Reading FASTA file... ")
+        sys.stdout.flush()
 
     line = fasta_handler.readline()
     # Check FASTA format
@@ -229,6 +256,10 @@ def read_fasta(args):
         line = fasta_handler.readline()
 
     genome_dict[header] = RefSeq(header, sequence)
+
+    if verbose:
+        sys.stdout.write("done.\n")
+        sys.stdout.write("Read %d sequences from FASTA file.\n" % len(genome_dict.keys()))
 
     return genome_dict
 
@@ -308,17 +339,22 @@ def calculate_normalization_metrics(genome_dict: dict, sampled_reads: int) -> No
     return
 
 
-def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
+def group_by(ref_seqs: dict, grouping=None, grouping_vars=None) -> dict:
     """
+    Groups together RefSeq instances in ref_seqs either based on a variable provided or all reference sequences if
+    group is set to 'genome'. When grouping, the numerical variables in RefSeq are summed so each group has the
+    aggregate value across all RefSeq instances. Otherwise nothing is changed.
 
-    :param ref_seqs:
-    :param grouping:
-    :param grouping_vars:
-    :return:
+    :param ref_seqs: Dictionary of RefSeq instances that have been populated with at least the weights
+    :param grouping: Specification of the groups, whether its 'genome', 'contig', or 'variable'
+    :param grouping_vars: If grouping is 'variable' these strings are used in regular expressions to find the matching
+    RefSeq instances by their sequence names (headers)
+    :return: Dictionary of RefSeq instances for each of the new groups.
     """
     grouped_ref_seqs = {}
     if grouping_vars is None:
         grouping_vars = []
+
     if grouping == "genome":
         genome_ref = RefSeq("Reference", "")
         for seq_name in ref_seqs:
@@ -326,7 +362,7 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
             genome_ref.aggregate(ref_seq)
         grouped_ref_seqs[genome_ref.name] = genome_ref
         return grouped_ref_seqs
-    elif grouping_vars:
+    elif grouping == "variable" and grouping_vars:
         ref_names = list(ref_seqs.keys())
         for var in grouping_vars:
             genome_ref = RefSeq(var, "")
@@ -355,6 +391,7 @@ def group_by(ref_seqs: dict, grouping=None, grouping_vars=None):
 def distribute_read_weights(hits_list: list, chemistry="pe", verbose=False) -> None:
     """
     Calculates a read's weight variable based on whether it aligned to multiple reference sequences
+
     :param hits_list: A list of Mapping instances
     :param chemistry: Either "pe" or "se" indicating whether the reads have mate-pairs (paired-end chemistry) or not
     :param verbose: Boolean indicating whether status and summary statements should be printed to screen
@@ -406,12 +443,13 @@ def write_summary(args, genome_dict):
 
 def main():
     args = get_options()
+    vars_list = read_group_vars(args.grouping_vars)
     hits_list = read_frhit_table(args.aln_tab, args.alignment_proportion, args.identity, args.verbose)
-    genome_dict = read_fasta(args)
+    genome_dict = read_fasta(args.genome, args.verbose)
     distribute_read_weights(hits_list, args.library, args.verbose)
     add_recruitments(hits_list, genome_dict)
+    genome_dict = group_by(genome_dict, args.group, vars_list)
     calculate_normalization_metrics(genome_dict, args.num_reads)
-    genome_dict = group_by(genome_dict, args.group, args.grouping_vars)
     write_summary(args, genome_dict)
 
 
