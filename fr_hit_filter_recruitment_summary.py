@@ -118,10 +118,10 @@ class RefSeq:
         self.length = len(sequence)
         self.num_pos = 0
         self.num_neg = 0
-        self.weight_sum = 0
-        self.fpkm = 0
-        self.rpk = 0
-        self.tpm = 0
+        self.weight_sum = 0.0
+        self.fpkm = 0.0
+        self.rpk = 0.0
+        self.tpm = 0.0
 
     def aggregate(self, ref_seq) -> None:
         self.length += ref_seq.length
@@ -135,7 +135,7 @@ class RefSeq:
     def calc_fpkm(self, num_reads):
         mmr = float(num_reads/1E6)
         if self.weight_sum == 0:
-            self.fpkm = 0
+            self.fpkm = 0.0
         else:
             self.fpkm = float((self.weight_sum/self.length)/mmr)
         return
@@ -161,10 +161,9 @@ class RefSeq:
         :return: A list of the reference sequence's:
          name, length, number of forward and reverse reads mapped to it, FPKM and TPM
         """
-        return [self.name,
-                str(self.length),
-                str(self.num_pos), str(self.num_neg),
-                str(self.fpkm), str(self.tpm)]
+        float_fields = [self.fpkm, self.tpm]
+        int_fields = [self.length, self.num_pos, self.num_neg]
+        return [self.name] + [str(x) for x in int_fields] + ['{:.10f}'.format(x) for x in float_fields]
 
 
 def read_frhit_table(hit_table: str, min_proportion: float, min_identity: int, verbose=False) -> list:
