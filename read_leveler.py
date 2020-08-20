@@ -55,7 +55,7 @@ def get_options():
     optopt = parser.add_argument_group("Optional arguments")
     optopt.add_argument('-o', '--output', default='', required=False,
                         help='The output file [ DEFAULT = ./${fastx}_levelled.f[a|q] ]')
-    optopt.add_argument("-l", "--read_length", default=1E3, required=False,
+    optopt.add_argument("-l", "--read_length", default=1E3, required=False, type=int,
                         help="The minimum and maximum length to level the reads. [ DEFAULT = 1E3 ]")
 
     miscellaneous_opts = parser.add_argument_group("Miscellaneous options")
