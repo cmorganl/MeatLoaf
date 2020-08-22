@@ -39,6 +39,14 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(36, ilmn_subseqs)
         return
 
+    def test_max_seq_level_fastq(self):
+        ilmn_subseqs = level_fastq(self.fq, self.output, seq_len=50, num=30, num_type='s')
+        self.assertEqual(30, ilmn_subseqs)
+
+    def test_max_char_level_fastq(self):
+        ilmn_subseqs = level_fastq(self.fq, self.output, seq_len=50, num=100, num_type='c')
+        self.assertEqual(2, ilmn_subseqs)
+
     def test_prep_output(self):
         test_fh = prep_output(fastx_file="test_data/test_TarA.1.fq", output_fastx='', extension="fq")
         self.assertEqual("test_data/test_TarA.1_levelled.fq", test_fh.name)
@@ -57,6 +65,12 @@ def get_options():
                         help='The output file [ DEFAULT = ./${fastx}_levelled.f[a|q] ]')
     optopt.add_argument("-l", "--read_length", default=1E3, required=False, type=int,
                         help="The minimum and maximum length to level the reads. [ DEFAULT = 1E3 ]")
+    optopt.add_argument("-n", "--number", default=0, required=False, dest="num", type=int,
+                        help="The amount of sequence information (e.g. contigs, reads, base-pairs) to write"
+                             " [ DEFAULT = no limit ].")
+    optopt.add_argument("-t", "--limit_type", required=False, default='s', choices=['s', 'c'], dest="lim_t",
+                        help="The type to constrain the '--number' parameter by, either sequences (s) or characters (c)"
+                             " [ DEFAULT = 's' ].")
 
     miscellaneous_opts = parser.add_argument_group("Miscellaneous options")
     miscellaneous_opts.add_argument('--overwrite', action='store_true', default=False,
@@ -72,9 +86,10 @@ def get_options():
     return args
 
 
-def level_fasta(fa, out_fh, seq_len: int) -> int:
+def level_fasta(fa, out_fh, seq_len: int, num=0, num_type='s') -> int:
     buff = ""
     n_subseqs = 0
+    n_char = 0
     for name, seq in fa:  # type: (str, str)
         if len(seq) < seq_len:
             continue
@@ -86,6 +101,12 @@ def level_fasta(fa, out_fh, seq_len: int) -> int:
                 buff += ">%s_%d\n%s\n" % (name, i, subseq)
                 i += 1
                 n_subseqs += 1
+                n_char += len(subseq)
+
+                if num > 0:
+                    if (num_type == 's' and n_subseqs == num) or (num_type == 'c' and n_char >= num):
+                        out_fh.write(buff)
+                        return n_subseqs
 
         if len(buff) > __MAX_BUFFER_LEN:
             out_fh.write(buff)
@@ -94,9 +115,10 @@ def level_fasta(fa, out_fh, seq_len: int) -> int:
     return n_subseqs
 
 
-def level_fastq(fq, out_fh, seq_len: int):
+def level_fastq(fq, out_fh, seq_len: int, num=0, num_type='s'):
     buff = ""
-    n_subseqs = 0
+    n_subseqs = 0  # Number of sequences written
+    n_char = 0  # The number of characters written
     for name, seq, qual in fq:
         if len(seq) < seq_len:
             continue
@@ -110,6 +132,12 @@ def level_fastq(fq, out_fh, seq_len: int):
                 buff += "@%s_%d\n%s\n+\n%s\n" % (name, i, subseq, subqual)
                 i += 1
                 n_subseqs += 1
+                n_char += len(subseq)
+
+                if num > 0:
+                    if (num_type == 's' and n_subseqs == num) or (num_type == 'c' and n_char >= num):
+                        out_fh.write(buff)
+                        return n_subseqs
 
         if len(buff) > __MAX_BUFFER_LEN:
             out_fh.write(buff)
@@ -178,9 +206,9 @@ def main():
 
     start = time()
     if type(fx) is Fasta:
-        level_fasta(fx, fh, args.read_length)
+        level_fasta(fx, fh, args.read_length, args.num, args.lim_t)
     elif type(fx) is Fastq:
-        level_fastq(fx, fh, args.read_length)
+        level_fastq(fx, fh, args.read_length, args.num, args.lim_t)
     fh.close()
     end = time()
     logging.debug("{} completed levelling in {}s.\n".format(args.fastx, end - start))
