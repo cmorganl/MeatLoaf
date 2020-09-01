@@ -21,11 +21,11 @@ class GBFTTestClass(unittest.TestCase):
                              533, 533, 650, 650, 758, 758, 920, 920])
         return
 
-    # def test_gbft_merge_dovetail(self):
-    #     main("--ft_ref {0}/fosmid_resequence_update/AY714826.1.tbl "
-    #          "--ft_two {0}/fosmid_resequence_update/Prokka/GZfos18C8_2773103/AY714826.tbl "
-    #          "--prefix {1}".format(self.base_dir, "GZ").split())
-    #     return
+    def test_gbft_merge_dovetail(self):
+        main("--ft_ref {0}/fosmid_resequence_update/AY714826.1.tbl "
+             "--ft_two {0}/fosmid_resequence_update/Prokka/GZfos18C8_2773103/AY714826.tbl "
+             "--prefix {1}".format(self.base_dir, "GZ").split())
+        return
 
     def test_gbft_merge_subseq(self):
         main("--ft_ref {0}/fosmid_resequence_update/AY714824.1.tbl "
@@ -66,8 +66,8 @@ def traceback(H, b, b_='', old_i=0):
 
 def smith_waterman(a, b, match_score=1, gap_cost=2):
     a, b = [str(i) for i in a], [str(j) for j in b]
-    H = matrix(a, b, match_score, gap_cost)
-    b_, pos = traceback(H, b)
+    h = matrix(a, b, match_score, gap_cost)
+    b_, pos = traceback(h, b)
     return pos, pos + len(b_)
 # End
 
@@ -161,7 +161,7 @@ def parse_features_from_table(feature_table: str) -> (str, list):
             exit_gracefully("Error: first line in feature table file isn't formatted properly:\n{}".format(header_line))
         else:
             header = header_line.strip()
-        feature_lines = [l.rstrip() for l in ft_handler.readlines()]
+        feature_lines = [line.rstrip() for line in ft_handler.readlines()]
 
     line = feature_lines[0]
     while line:
@@ -202,6 +202,18 @@ def merge_qualifiers_from_feature(ref_feature: SeqFeature, putative_feature: Seq
     return new_feature
 
 
+def keep_pairs(first_index, second_index) -> (int, int):
+    if first_index % 2 == 0:
+        first_index -= 1
+    if second_index % 2 == 0:
+        second_index -= 1
+
+    if ((first_index-1) + (second_index-1)) % 2 != 0:
+        # An odd number of features will be popped
+        exit_gracefully("Odd number of features will be popped, knocking merge out of sync.")
+    return first_index, second_index
+
+
 def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list_two) -> (list, int, int):
     """
     Ensure that the beginning first SeqFeature instance in each of the two lists of SeqFeatures are the same length.
@@ -215,29 +227,29 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     updated_features = []
     skipped_features = ""
 
-    feat_one_lens.pop(0)
-    feat_two_lens.pop(0)
-
     start_one, _ = smith_waterman(feat_two_lens, feat_one_lens)
+    start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
+
+    if start_one % 2 == 0 or start_two % 2 == 0:
+        start_one, start_two = keep_pairs(start_one, start_two)
+
     if start_one > 0:
-        skipped_features += feat_list_one.pop(0)
         while start_one > 0:
             skipped_features += seq_feature_to_string(feat_list_one.pop(0)) + "\n"
-            start_one -= 1
             feat_one_lens.pop(0)
-        skipped_features += feat_list_one.pop(0)
+            start_one -= 1
 
-    start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
     if start_two > 0:
-        updated_features.append(feat_list_two.pop(0))
         while start_two > 0:
             updated_features.append(feat_list_two.pop(0))
-            start_two -= 1
             feat_two_lens.pop(0)
-        updated_features.append(feat_list_two.pop(0))
+            start_two -= 1
 
     if skipped_features:
         print("Reference feature(s) skipped:\n", skipped_features)
+
+    if len(feat_list_one) % 2 == 0 or len(feat_list_two) % 2 == 0:
+        exit_gracefully("Odd number of features in feature list detected. Lists are out of sync.")
 
     return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
 
@@ -260,14 +272,18 @@ def reconcile_feature_lists(feat_list_one: list, feat_list_two: list) -> list:
     feat_two_lens = [get_feature_length(f) for f in feat_list_two]
     desired_features = len(feat_list_two)
 
-    while feat_list_one and feat_list_two:
-        ref_len = feat_one_lens.pop(0)
-        new_len = feat_two_lens.pop(0)
+    ref_len = feat_one_lens.pop(0)
+    new_len = feat_two_lens.pop(0)
+    while feat_one_lens and feat_two_lens:
         # Ensure the feature lengths are similar between the old and reference features, ORF discrepancies are abundant
         if abs(ref_len - new_len) > 50:
-            skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
-                                                                       feat_list_one, feat_list_two)
-            updated_features += skipped_features
+            while ref_len != new_len:
+                skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
+                                                                           feat_list_one, feat_list_two)
+                updated_features += skipped_features
+        else:
+            ref_len = feat_one_lens.pop(0)
+            new_len = feat_two_lens.pop(0)
         updated_features.append(merge_qualifiers_from_feature(feat_list_one.pop(0), feat_list_two.pop(0)))
 
     # Ensure all features remaining are removed from both feature lists
@@ -339,6 +355,7 @@ def write_feature_table(output_ft: str, header: str, feature_list: list) -> None
 
 def count_loci(seq_features: list, sep='_') -> int:
     acc = 0
+    num = 0
     for seq_feat in seq_features:  # type: SeqFeature
         if not seq_feat.id:
             continue
