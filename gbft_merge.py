@@ -21,16 +21,22 @@ class GBFTTestClass(unittest.TestCase):
                              533, 533, 650, 650, 758, 758, 920, 920])
         return
 
-    def test_gbft_merge(self):
+    # def test_gbft_merge_dovetail(self):
+    #     main("--ft_ref {0}/fosmid_resequence_update/AY714826.1.tbl "
+    #          "--ft_two {0}/fosmid_resequence_update/Prokka/GZfos18C8_2773103/AY714826.tbl "
+    #          "--prefix {1}".format(self.base_dir, "GZ").split())
+    #     return
+
+    def test_gbft_merge_subseq(self):
         main("--ft_ref {0}/fosmid_resequence_update/AY714824.1.tbl "
              "--ft_two {0}/fosmid_resequence_update/Prokka/GZfos17G11_3436005/AY714824.tbl "
-             "--prefix {1}".format(self.base_dir, "GZ17G11").split())
+             "--prefix {1}".format(self.base_dir, "GZ").split())
         return
 
-    def test_smith_waterman(self):
-        start, end = smith_waterman([str(i) for i in self.real_arrays[1]], [str(i) for i in self.real_arrays[0]])
-        self.assertEqual(2, start)
-        return
+    # def test_smith_waterman(self):
+    #     start, end = smith_waterman([str(i) for i in self.real_arrays[1]], [str(i) for i in self.real_arrays[0]])
+    #     self.assertEqual(2, start)
+    #     return
 
 
 # The following code was copied directly from Daniel Tiefenauer's blog at:
@@ -67,7 +73,12 @@ def smith_waterman(a, b, match_score=1, gap_cost=2):
 
 
 def get_arg_parser(sys_args):
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(add_help=False,
+                                     description="The GenBank Feature Table (GBFT) merging script. "
+                                                 "This can be used for comparing the features of two feature tables, "
+                                                 "a 'reference' table and a 'new' table and merge the feature IDs "
+                                                 "found in the reference table while maintaining all the new feature "
+                                                 "table's locations and features that are not found in the reference.")
     required_args = parser.add_argument_group("Required arguments")
     required_args.add_argument("--ft_ref", required=True,
                                help="The first feature table, whose 'locus_tag's, 'protein_id's and other qualifiers "
@@ -101,6 +112,46 @@ def exit_gracefully(exit_statement: str, errorcode=1) -> SystemExit:
     return sys.exit(errorcode)
 
 
+def get_feature_coordinates(pos_fields) -> (int, int, int):
+    fp, sp = [int(re.sub(r'[<>]', '', i)) for i in pos_fields]
+    if fp > sp:
+        start = sp
+        end = fp
+        strand = -1
+    else:
+        start = fp
+        end = sp
+        strand = 1
+    return start, end, strand
+
+
+def load_lines_to_feature(feat_tbl_lines: list, sep="\t") -> SeqFeature:
+    """
+    Loads a list of lines into a SeqFeature instance.
+
+    :param feat_tbl_lines:
+    :param sep:
+    :return:
+    """
+
+    # Load the feature's description and positions
+    desc_line = feat_tbl_lines.pop(0)
+    fields = desc_line.split(sep)
+    start, stop, strand = get_feature_coordinates(fields[:2])
+    seq_feat = SeqFeature(type=fields[2], location=FeatureLocation(start, stop), strand=strand)
+    seq_feat.id = None
+
+    # Load the feature's qualifier lines
+    while feat_tbl_lines and len(feat_tbl_lines[0].split(sep)) == 5:
+        fields = feat_tbl_lines.pop(0).split(sep)
+        qualifier, value = fields[3:]
+        seq_feat.qualifiers[qualifier] = value
+        if qualifier == "locus_tag":
+            seq_feat.id = value
+
+    return seq_feat
+
+
 def parse_features_from_table(feature_table: str) -> (str, list):
     header = ""
     features = []
@@ -110,30 +161,17 @@ def parse_features_from_table(feature_table: str) -> (str, list):
             exit_gracefully("Error: first line in feature table file isn't formatted properly:\n{}".format(header_line))
         else:
             header = header_line.strip()
-        for line in [l.rstrip() for l in ft_handler.readlines()]:
-            if not line:
-                continue
-            fields = line.split("\t")
-            if len(fields) == 3:
-                fp, sp = [int(i) for i in fields[:2]]
-                if fp > sp:
-                    start = sp
-                    end = fp
-                    strand = -1
-                else:
-                    start = fp
-                    end = sp
-                    strand = 1
-                feature = SeqFeature(type=fields[2], location=FeatureLocation(start, end), strand=strand)
-                feature.id = None
-                features.append(feature)
-            elif len(fields) == 5:
-                qualifier, value = fields[3:]
-                feature.qualifiers[qualifier] = value
-                if qualifier == "locus_tag":
-                    feature.id = value
-            else:
-                exit_gracefully("Unexpected line format in feature table '{}':\n{}".format(feature_table, line))
+        feature_lines = [l.rstrip() for l in ft_handler.readlines()]
+
+    line = feature_lines[0]
+    while line:
+        features.append(load_lines_to_feature(feature_lines))
+        try:
+            line = feature_lines[0]
+        except IndexError:
+            break
+        if line and len(line.split("\t")) != 3:
+            exit_gracefully("Unexpected line format in feature table '{}':\n{}".format(feature_table, line))
 
     return header, features
 
@@ -142,13 +180,17 @@ def get_feature_length(feature: SeqFeature) -> str:
     return (feature.location.end - feature.location.start) * feature.strand
 
 
-def merge_qualifiers_from_feature(ref_feature: SeqFeature, putative_feature: SeqFeature) -> SeqFeature:
+def validate_feature_merge(ref_feature, putative_feature) -> None:
     # Check to be sure the strand and type are identical
     if ref_feature.type != putative_feature.type:
         exit_gracefully("SeqFeature type mismatch during merge:\n{}\n{}".format(ref_feature, putative_feature))
     elif ref_feature.strand != putative_feature.strand:
         exit_gracefully("SeqFeature strand mismatch during merge:\n{}\n{}".format(ref_feature, putative_feature))
+    return
 
+
+def merge_qualifiers_from_feature(ref_feature: SeqFeature, putative_feature: SeqFeature) -> SeqFeature:
+    validate_feature_merge(ref_feature, putative_feature)
     new_feature = SeqFeature(type=ref_feature.type, location=putative_feature.location, strand=putative_feature.strand)
     for qual, val in putative_feature.qualifiers.items():
         # Populate the feature qualifiers, giving priority to the ref_feature values
@@ -158,6 +200,46 @@ def merge_qualifiers_from_feature(ref_feature: SeqFeature, putative_feature: Seq
             new_feature.qualifiers[qual] = ref_feature.qualifiers[qual]
 
     return new_feature
+
+
+def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list_two) -> (list, int, int):
+    """
+    Ensure that the beginning first SeqFeature instance in each of the two lists of SeqFeatures are the same length.
+
+    :param feat_one_lens:
+    :param feat_two_lens:
+    :param feat_list_one:
+    :param feat_list_two:
+    :return: A list of SeqFeature instances from feat_list_two (the new features) that were popped to align the lists
+    """
+    updated_features = []
+    skipped_features = ""
+
+    feat_one_lens.pop(0)
+    feat_two_lens.pop(0)
+
+    start_one, _ = smith_waterman(feat_two_lens, feat_one_lens)
+    if start_one > 0:
+        skipped_features += feat_list_one.pop(0)
+        while start_one > 0:
+            skipped_features += seq_feature_to_string(feat_list_one.pop(0)) + "\n"
+            start_one -= 1
+            feat_one_lens.pop(0)
+        skipped_features += feat_list_one.pop(0)
+
+    start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
+    if start_two > 0:
+        updated_features.append(feat_list_two.pop(0))
+        while start_two > 0:
+            updated_features.append(feat_list_two.pop(0))
+            start_two -= 1
+            feat_two_lens.pop(0)
+        updated_features.append(feat_list_two.pop(0))
+
+    if skipped_features:
+        print("Reference feature(s) skipped:\n", skipped_features)
+
+    return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
 
 
 def reconcile_feature_lists(feat_list_one: list, feat_list_two: list) -> list:
@@ -176,29 +258,17 @@ def reconcile_feature_lists(feat_list_one: list, feat_list_two: list) -> list:
 
     feat_one_lens = [get_feature_length(f) for f in feat_list_one]
     feat_two_lens = [get_feature_length(f) for f in feat_list_two]
-
-    start_one, _ = smith_waterman(feat_two_lens, feat_one_lens)
-    start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
-
-    i = 0
-    j = 0
-    while start_one > 0:
-        print("Reference sequence feature skipped:\n{}".format(seq_feature_to_string(feat_list_one.pop(0))))
-        start_one -= 1
-        i += 1
-    while start_two > 0:
-        updated_features.append(feat_list_two.pop(0))
-        start_two -= 1
-        j += 1
+    desired_features = len(feat_list_two)
 
     while feat_list_one and feat_list_two:
-        while not -50 < (feat_one_lens[i] - feat_two_lens[j]) < 50:
-            print("Reference sequence feature skipped:\n{}".format(seq_feature_to_string(feat_list_one.pop(0))))
-            i += 1
-        updated_features.append(merge_qualifiers_from_feature(feat_list_one.pop(0),
-                                                              feat_list_two.pop(0)))
-        i += 1
-        j += 1
+        ref_len = feat_one_lens.pop(0)
+        new_len = feat_two_lens.pop(0)
+        # Ensure the feature lengths are similar between the old and reference features, ORF discrepancies are abundant
+        if abs(ref_len - new_len) > 50:
+            skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
+                                                                       feat_list_one, feat_list_two)
+            updated_features += skipped_features
+        updated_features.append(merge_qualifiers_from_feature(feat_list_one.pop(0), feat_list_two.pop(0)))
 
     # Ensure all features remaining are removed from both feature lists
     while feat_list_one:
@@ -206,7 +276,8 @@ def reconcile_feature_lists(feat_list_one: list, feat_list_two: list) -> list:
     while feat_list_two:
         updated_features.append(feat_list_two.pop(0))
 
-    if len(updated_features) != len(feat_two_lens):
+    # Test the difference between the original number of features and the updated number
+    if len(updated_features) != desired_features:
         exit_gracefully("Number of updated features ({}) is different from the number of new features ({})."
                         "".format(len(updated_features), len(feat_two_lens)))
 
