@@ -7,27 +7,7 @@ import unittest
 
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
-
-class Locus:
-    def __init__(self, start, stop, strand):
-        self.start = start
-        self.stop = stop
-        self.strand = strand
-        self.features = []
-        self.tag = ""
-
-    def n_features(self) -> int:
-        return len(self.features)
-
-    def get_info(self) -> str:
-        return "Locus tag:\t'{}'\nStart-Stop\t{}-{}\nStrand\t{}\n".format(self.tag, self.start, self.stop, self.strand)
-
-    def locus_len(self) -> int:
-        length = (max(self.stop, self.start) - min(self.stop, self.start)) * self.strand
-        if length != 0:
-            return length
-        else:
-            exit_gracefully("A locus of length 0 was encountered:\n{}\n".format(self.get_info()))
+_DIST_THRESHOLD = 50
 
 
 class GBFTTestClass(unittest.TestCase):
@@ -51,7 +31,7 @@ class GBFTTestClass(unittest.TestCase):
     def test_parse_features_from_table(self):
         _, loci = parse_loci_from_table(feature_table=self.update_sub)
         self.assertEqual(41, len(loci))
-        self.assertEqual(2, set([l.n_features() for l in loci]).pop())
+        self.assertEqual(2, set([lc.n_features() for lc in loci]).pop())
         return
 
     def test_count_loci(self):
@@ -72,14 +52,30 @@ class GBFTTestClass(unittest.TestCase):
         return
 
 
-    # def test_smith_waterman(self):
-    #     start, end = smith_waterman([str(i) for i in self.real_arrays[1]], [str(i) for i in self.real_arrays[0]])
-    #     self.assertEqual(2, start)
-    #     return
+class Locus:
+    def __init__(self, start, stop, strand):
+        self.start = start
+        self.stop = stop
+        self.strand = strand
+        self.features = []
+        self.tag = ""
 
+    def n_features(self) -> int:
+        return len(self.features)
+
+    def get_info(self) -> str:
+        return "Locus tag:\t'{}'\nStart-Stop\t{}-{}\nStrand\t{}\n".format(self.tag, self.start, self.stop, self.strand)
+
+    def locus_len(self) -> int:
+        length = abs_dist(self.stop, self.start) * self.strand
+        if length != 0:
+            return length
+        else:
+            exit_gracefully("A locus of length 0 was encountered:\n{}\n".format(self.get_info()))
 
 # The following code was copied directly from Daniel Tiefenauer's blog at:
 # https://tiefenauer.github.io/blog/smith-waterman/#usage-and-tests
+
 
 def matrix(a, b, match_score=3, gap_cost=2):
     H = np.zeros((len(a) + 1, len(b) + 1), np.int)
@@ -149,6 +145,10 @@ def get_arg_parser(sys_args):
 def exit_gracefully(exit_statement: str, errorcode=1) -> SystemExit:
     print(exit_statement)
     return sys.exit(errorcode)
+
+
+def abs_dist(n1: int, n2: int) -> int:
+    return max(n1, n2) - min(n1, n2)
 
 
 def get_feature_coordinates(pos_fields) -> (int, int, int):
@@ -234,29 +234,6 @@ def parse_loci_from_table(feature_table: str) -> (str, list):
     return header, loci
 
 
-# def parse_features_from_table(feature_table: str) -> (str, list):
-#     header = ""
-#     features = []
-#     with open(feature_table) as ft_handler:
-#         header_line = ft_handler.readline()
-#         if header_line[0] != '>':
-#             exit_gracefully("Error: first line in feature table file isn't formatted properly:\n{}".format(header_line))
-#         else:
-#             header = header_line.strip()
-#         feature_lines = [line.rstrip() for line in ft_handler.readlines()]
-#
-#     line = feature_lines[0]
-#     while line:
-#         features.append(load_lines_to_feature(feature_lines))
-#         try:
-#             line = feature_lines[0]
-#         except IndexError:
-#             break
-#         if line and len(line.split("\t")) != 3:
-#             exit_gracefully("Unexpected line format in feature table '{}':\n{}".format(feature_table, line))
-#
-#     return header, features
-
 def get_feature_length(feature: SeqFeature) -> str:
     return (feature.location.end - feature.location.start) * feature.strand
 
@@ -288,12 +265,6 @@ def merge_features_from_locus(ref_locus: Locus, putative_locus: Locus) -> list:
     return merged_features
 
 
-def adjust_by_modulo(num: int, mod=2) -> int:
-    if num > 0 and num % mod == 0:
-        num -= 1
-    return num
-
-
 def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list_two) -> (list, int, int):
     """
     Ensure that the beginning first SeqFeature instance in each of the two lists of SeqFeatures are the same length.
@@ -310,14 +281,13 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     start_one, _ = smith_waterman(feat_two_lens, feat_one_lens)
     start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
 
-    if start_one > 0:
-        while start_one > 0:
-            skipped_features += locus_features_to_string(feat_list_one.pop(0)) + "\n"
+    while start_one or start_two:
+        if start_one > 0:
+            skipped_locus = feat_list_one.pop(0)
+            skipped_features += locus_features_to_string(skipped_locus) + "\n"
             feat_one_lens.pop(0)
             start_one -= 1
-
-    if start_two > 0:
-        while start_two > 0:
+        if start_two > 0:
             skipped_locus = feat_list_two.pop(0)  # type: Locus
             for seq_feature in skipped_locus.features:
                 updated_features.append(seq_feature)
@@ -344,15 +314,15 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
     updated_features = []
     # Determine the orientation of the two feature lists by comparing the lengths of their features
 
-    feat_one_lens = [l.locus_len() for l in locus_list_one]
-    feat_two_lens = [l.locus_len() for l in locus_list_two]
-    desired_features = sum([l.n_features() for l in locus_list_two])
+    feat_one_lens = [lc.locus_len() for lc in locus_list_one]
+    feat_two_lens = [lc.locus_len() for lc in locus_list_two]
+    desired_features = sum([lc.n_features() for lc in locus_list_two])
 
     while feat_one_lens and feat_two_lens:
         ref_len = feat_one_lens.pop(0)
         new_len = feat_two_lens.pop(0)
         # Ensure the feature lengths are similar between the old and reference features, ORF discrepancies are abundant
-        if max(ref_len, new_len) - min(ref_len, new_len) > 50:
+        if abs_dist(ref_len, new_len) > _DIST_THRESHOLD:
             feat_one_lens = [ref_len] + feat_one_lens
             feat_two_lens = [new_len] + feat_two_lens
             while ref_len != new_len:
