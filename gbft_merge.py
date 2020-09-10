@@ -7,7 +7,7 @@ import unittest
 
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
-_DIST_THRESHOLD = 30
+_DIST_LIMIT = 30
 
 
 class GBFTTestClass(unittest.TestCase):
@@ -15,6 +15,10 @@ class GBFTTestClass(unittest.TestCase):
         self.test_data_dir = "./test_data/"
         self.original_dove = "{}AY714826.1.tbl".format(self.test_data_dir)
         self.update_dove = "{}AY714826.tbl".format(self.test_data_dir)
+        self.original_ragged = "{}AY714854.1.tbl".format(self.test_data_dir)
+        self.update_ragged = "{}AY714854.tbl".format(self.test_data_dir)
+        self.original_miss = "{}AY714835.1.tbl".format(self.test_data_dir)
+        self.update_miss = "{}AY714835.tbl".format(self.test_data_dir)
         self.original_sub = "{}AY714824.1.tbl".format(self.test_data_dir)
         self.update_sub = "{}AY714824.tbl".format(self.test_data_dir)
 
@@ -49,6 +53,14 @@ class GBFTTestClass(unittest.TestCase):
 
     def test_gbft_merge_dovetail(self):
         main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_dove, self.update_dove, "GZ18C8").split())
+        return
+
+    def test_gbft_merge_ragged(self):
+        main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_ragged, self.update_ragged, "GZ").split())
+        return
+    
+    def test_gbft_merge_miss(self):
+        main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_miss, self.update_miss, "GZ").split())
         return
 
 
@@ -282,7 +294,7 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
 
     while start_one or start_two:
-        if abs_dist(feat_one_lens[0], feat_two_lens[0]) < _DIST_THRESHOLD:
+        if min(len(feat_one_lens), len(feat_two_lens)) == 0 or abs_dist(feat_one_lens[0], feat_two_lens[0]) < _DIST_LIMIT:
             break
         if start_one > 0:
             skipped_locus = feat_list_one.pop(0)
@@ -299,7 +311,10 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     if skipped_features:
         print("Reference feature(s) skipped:\n{}".format(skipped_features))
 
-    return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
+    try:
+        return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
+    except IndexError:
+        return updated_features, 0, 0
 
 
 def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
@@ -324,12 +339,17 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
         ref_len = feat_one_lens.pop(0)
         new_len = feat_two_lens.pop(0)
         # Ensure the feature lengths are similar between the old and reference features, ORF discrepancies are abundant
-        if abs_dist(ref_len, new_len) > _DIST_THRESHOLD:
+        if abs_dist(ref_len, new_len) > _DIST_LIMIT:
             feat_one_lens = [ref_len] + feat_one_lens
             feat_two_lens = [new_len] + feat_two_lens
             skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
                                                                        locus_list_one, locus_list_two)
+            if len(skipped_features) == desired_features:
+                print("No matching loci were found between the original and new feature tables.")
+
             updated_features += skipped_features
+        if ref_len == new_len == 0:
+            break
         updated_features += merge_features_from_locus(locus_list_one.pop(0), locus_list_two.pop(0))
 
     # Ensure all features remaining are removed from both feature lists
