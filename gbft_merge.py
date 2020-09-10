@@ -297,7 +297,7 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
             start_two -= 1
 
     if skipped_features:
-        print("Reference feature(s) skipped:\n", skipped_features)
+        print("Reference feature(s) skipped:\n{}".format(skipped_features))
 
     return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
 
