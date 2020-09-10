@@ -19,6 +19,16 @@ class Locus:
     def n_features(self) -> int:
         return len(self.features)
 
+    def get_info(self) -> str:
+        return "Locus tag:\t'{}'\nStart-Stop\t{}-{}\nStrand\t{}\n".format(self.tag, self.start, self.stop, self.strand)
+
+    def locus_len(self) -> int:
+        length = (max(self.stop, self.start) - min(self.stop, self.start)) * self.strand
+        if length != 0:
+            return length
+        else:
+            exit_gracefully("A locus of length 0 was encountered:\n{}\n".format(self.get_info()))
+
 
 class GBFTTestClass(unittest.TestCase):
     def setUp(self) -> None:
@@ -56,10 +66,10 @@ class GBFTTestClass(unittest.TestCase):
     def test_gbft_merge_subseq(self):
         main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_sub, self.update_sub, "GZ17G11").split())
         return
-    #
-    # def test_gbft_merge_dovetail(self):
-    #     main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_dove, self.update_dove, "GZ18C8").split())
-    #     return
+
+    def test_gbft_merge_dovetail(self):
+        main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_dove, self.update_dove, "GZ18C8").split())
+        return
 
 
     # def test_smith_waterman(self):
@@ -251,10 +261,6 @@ def get_feature_length(feature: SeqFeature) -> str:
     return (feature.location.end - feature.location.start) * feature.strand
 
 
-def get_locus_len(locus: Locus) -> str:
-    return (locus.stop - locus.start) * locus.strand
-
-
 def validate_feature_merge(ref_feature: SeqFeature, putative_feature: SeqFeature) -> None:
     # Check to be sure the strand and type are identical
     if ref_feature.type != putative_feature.type:
@@ -321,7 +327,7 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     if skipped_features:
         print("Reference feature(s) skipped:\n", skipped_features)
 
-    return updated_features, feat_one_lens.pop(), feat_two_lens.pop()
+    return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
 
 
 def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
@@ -338,24 +344,21 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
     updated_features = []
     # Determine the orientation of the two feature lists by comparing the lengths of their features
 
-    feat_one_lens = [get_locus_len(f) for f in locus_list_one]
-    feat_two_lens = [get_locus_len(f) for f in locus_list_two]
+    feat_one_lens = [l.locus_len() for l in locus_list_one]
+    feat_two_lens = [l.locus_len() for l in locus_list_two]
     desired_features = sum([l.n_features() for l in locus_list_two])
 
-    ref_len = feat_one_lens.pop(0)
-    new_len = feat_two_lens.pop(0)
     while feat_one_lens and feat_two_lens:
+        ref_len = feat_one_lens.pop(0)
+        new_len = feat_two_lens.pop(0)
         # Ensure the feature lengths are similar between the old and reference features, ORF discrepancies are abundant
-        if abs(ref_len - new_len) > 50:
+        if max(ref_len, new_len) - min(ref_len, new_len) > 50:
             feat_one_lens = [ref_len] + feat_one_lens
             feat_two_lens = [new_len] + feat_two_lens
             while ref_len != new_len:
                 skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
                                                                            locus_list_one, locus_list_two)
                 updated_features += skipped_features
-        else:
-            ref_len = feat_one_lens.pop(0)
-            new_len = feat_two_lens.pop(0)
         updated_features += merge_features_from_locus(locus_list_one.pop(0), locus_list_two.pop(0))
 
     # Ensure all features remaining are removed from both feature lists
