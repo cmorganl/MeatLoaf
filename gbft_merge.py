@@ -58,7 +58,7 @@ class GBFTTestClass(unittest.TestCase):
     def test_gbft_merge_ragged(self):
         main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_ragged, self.update_ragged, "GZ").split())
         return
-    
+
     def test_gbft_merge_miss(self):
         main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_miss, self.update_miss, "GZ").split())
         return
@@ -277,7 +277,7 @@ def merge_features_from_locus(ref_locus: Locus, putative_locus: Locus) -> list:
     return merged_features
 
 
-def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list_two) -> (list, int, int):
+def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list_two) -> (list, list, int, int):
     """
     Ensure that the beginning first SeqFeature instance in each of the two lists of SeqFeatures are the same length.
 
@@ -288,7 +288,7 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     :return: A list of SeqFeature instances from feat_list_two (the new features) that were popped to align the lists
     """
     updated_features = []
-    skipped_features = ""
+    skipped_loci = []
 
     start_one, _ = smith_waterman(feat_two_lens, feat_one_lens)
     start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
@@ -297,8 +297,7 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
         if min(len(feat_one_lens), len(feat_two_lens)) == 0 or abs_dist(feat_one_lens[0], feat_two_lens[0]) < _DIST_LIMIT:
             break
         if start_one > 0:
-            skipped_locus = feat_list_one.pop(0)
-            skipped_features += locus_features_to_string(skipped_locus) + "\n"
+            skipped_loci.append(feat_list_one.pop(0))
             feat_one_lens.pop(0)
             start_one -= 1
         if start_two > 0:
@@ -308,13 +307,10 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
             feat_two_lens.pop(0)
             start_two -= 1
 
-    if skipped_features:
-        print("Reference feature(s) skipped:\n{}".format(skipped_features))
-
     try:
-        return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
+        return updated_features, skipped_loci, feat_one_lens.pop(0), feat_two_lens.pop(0)
     except IndexError:
-        return updated_features, 0, 0
+        return updated_features, skipped_loci, 0, 0
 
 
 def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
@@ -329,10 +325,13 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
     :return: A list of SeqFeature instances
     """
     updated_features = []
+    skipped_features = 0
+    skipped_features_str = ""
     # Determine the orientation of the two feature lists by comparing the lengths of their features
 
     feat_one_lens = [lc.locus_len() for lc in locus_list_one]
     feat_two_lens = [lc.locus_len() for lc in locus_list_two]
+    ref_features = sum([lc.n_features() for lc in locus_list_one])
     desired_features = sum([lc.n_features() for lc in locus_list_two])
 
     while feat_one_lens and feat_two_lens:
@@ -342,21 +341,29 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
         if abs_dist(ref_len, new_len) > _DIST_LIMIT:
             feat_one_lens = [ref_len] + feat_one_lens
             feat_two_lens = [new_len] + feat_two_lens
-            skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
-                                                                       locus_list_one, locus_list_two)
-            if len(skipped_features) == desired_features:
+            new_features, skipped_loci, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
+                                                                                 locus_list_one, locus_list_two)
+            for skipped_locus in skipped_loci:  # type: Locus
+                skipped_features_str += locus_features_to_string(skipped_locus) + "\n"
+                skipped_features += skipped_locus.n_features()
+
+            if len(new_features) == desired_features:
                 print("No matching loci were found between the original and new feature tables.")
 
-            updated_features += skipped_features
+            updated_features += new_features
         if ref_len == new_len == 0:
             break
         updated_features += merge_features_from_locus(locus_list_one.pop(0), locus_list_two.pop(0))
 
     # Ensure all features remaining are removed from both feature lists
     while locus_list_one:
-        print("Reference sequence feature skipped:\n{}".format(locus_features_to_string(locus_list_one.pop(0))))
+        skipped_features_str += locus_features_to_string(locus_list_one.pop(0)) + "\n"
     while locus_list_two:
         updated_features.append(locus_list_two.pop(0))
+
+    if skipped_features_str:
+        print("Reference feature(s) skipped:\n{}".format(skipped_features_str))
+    print("{}/{} reference features were skipped.\n".format(skipped_features, ref_features))
 
     # Test the difference between the original number of features and the updated number
     if len(updated_features) != desired_features:
