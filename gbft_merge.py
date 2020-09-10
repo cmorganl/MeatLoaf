@@ -8,9 +8,26 @@ import unittest
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
 
+class Locus:
+    def __init__(self, start, stop, strand):
+        self.start = start
+        self.stop = stop
+        self.strand = strand
+        self.features = []
+        self.tag = ""
+
+    def n_features(self) -> int:
+        return len(self.features)
+
+
 class GBFTTestClass(unittest.TestCase):
     def setUp(self) -> None:
-        self.base_dir = "/mnt/sdb/Hallam_projects/ANME/ProcessedData/NCBI_deposition"
+        self.test_data_dir = "./test_data/"
+        self.original_dove = "{}AY714826.1.tbl".format(self.test_data_dir)
+        self.update_dove = "{}AY714826.tbl".format(self.test_data_dir)
+        self.original_sub = "{}AY714824.1.tbl".format(self.test_data_dir)
+        self.update_sub = "{}AY714824.tbl".format(self.test_data_dir)
+
         self.test_arrays = (['1', '2', '3', '400', '2'], ['2', '3', '400'])
         self.real_arrays = ([1277, 1277, -839, -839, -1388, -1388, -1616, -1616, -1283, -1283, -851, -851,
                              830, 830, -365, -365, -692, -692, -818, -818, -464, -464, 1541, 1541, -73, -73,
@@ -21,17 +38,29 @@ class GBFTTestClass(unittest.TestCase):
                              533, 533, 650, 650, 758, 758, 920, 920])
         return
 
-    def test_gbft_merge_dovetail(self):
-        main("--ft_ref {0}/fosmid_resequence_update/AY714826.1.tbl "
-             "--ft_two {0}/fosmid_resequence_update/Prokka/GZfos18C8_2773103/AY714826.tbl "
-             "--prefix {1}".format(self.base_dir, "GZ").split())
+    def test_parse_features_from_table(self):
+        _, loci = parse_loci_from_table(feature_table=self.update_sub)
+        self.assertEqual(41, len(loci))
+        self.assertEqual(2, set([l.n_features() for l in loci]).pop())
         return
 
+    def test_count_loci(self):
+        _, og_loci = parse_loci_from_table(feature_table=self.original_sub)
+        self.assertEqual(18, count_loci(og_loci))
+
+    def test_reconcile_feature_lists(self):
+        combined = reconcile_feature_lists(locus_list_one=parse_loci_from_table(feature_table=self.original_sub)[1],
+                                           locus_list_two=parse_loci_from_table(feature_table=self.update_sub)[1])
+        self.assertEqual(82, len(combined))
+
     def test_gbft_merge_subseq(self):
-        main("--ft_ref {0}/fosmid_resequence_update/AY714824.1.tbl "
-             "--ft_two {0}/fosmid_resequence_update/Prokka/GZfos17G11_3436005/AY714824.tbl "
-             "--prefix {1}".format(self.base_dir, "GZ").split())
+        main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_sub, self.update_sub, "GZ17G11").split())
         return
+    #
+    # def test_gbft_merge_dovetail(self):
+    #     main("--ft_ref {0} --ft_two {1} --prefix {2}".format(self.original_dove, self.update_dove, "GZ18C8").split())
+    #     return
+
 
     # def test_smith_waterman(self):
     #     start, end = smith_waterman([str(i) for i in self.real_arrays[1]], [str(i) for i in self.real_arrays[0]])
@@ -126,14 +155,6 @@ def get_feature_coordinates(pos_fields) -> (int, int, int):
 
 
 def load_lines_to_feature(feat_tbl_lines: list, sep="\t") -> SeqFeature:
-    """
-    Loads a list of lines into a SeqFeature instance.
-
-    :param feat_tbl_lines:
-    :param sep:
-    :return:
-    """
-
     # Load the feature's description and positions
     desc_line = feat_tbl_lines.pop(0)
     fields = desc_line.split(sep)
@@ -148,13 +169,40 @@ def load_lines_to_feature(feat_tbl_lines: list, sep="\t") -> SeqFeature:
         seq_feat.qualifiers[qualifier] = value
         if qualifier == "locus_tag":
             seq_feat.id = value
-
     return seq_feat
 
 
-def parse_features_from_table(feature_table: str) -> (str, list):
+def load_lines_to_locus(feat_tbl_lines: list, sep="\t") -> Locus:
+    """
+    Loads a list of lines into a Locus instance, the features attribute of which contains a list of SeqFeature objects.
+
+    :param feat_tbl_lines: A list of lines following the format of a valid GenBank feature table
+    :param sep: The field separator, default being tab. This should never change, really.
+    :return: A locus instance
+    """
+
+    # Load the feature's description and positions
+    fields = feat_tbl_lines[0].split(sep)
+    start, stop, strand = get_feature_coordinates(fields[:2])
+    locus = Locus(start, stop, strand)
+
+    # While the start, stop and strand values remain unchanged, continue loading new features into locus
+    while feat_tbl_lines:
+        if len(feat_tbl_lines[0]) == 0:
+            break
+        fields = feat_tbl_lines[0].split(sep)
+
+        coords = get_feature_coordinates(fields[:2])
+        if start != coords[0] or stop != coords[1]:
+            break
+        locus.features.append(load_lines_to_feature(feat_tbl_lines))
+
+    return locus
+
+
+def parse_loci_from_table(feature_table: str) -> (str, list):
     header = ""
-    features = []
+    loci = []
     with open(feature_table) as ft_handler:
         header_line = ft_handler.readline()
         if header_line[0] != '>':
@@ -165,7 +213,7 @@ def parse_features_from_table(feature_table: str) -> (str, list):
 
     line = feature_lines[0]
     while line:
-        features.append(load_lines_to_feature(feature_lines))
+        loci.append(load_lines_to_locus(feature_lines))
         try:
             line = feature_lines[0]
         except IndexError:
@@ -173,14 +221,41 @@ def parse_features_from_table(feature_table: str) -> (str, list):
         if line and len(line.split("\t")) != 3:
             exit_gracefully("Unexpected line format in feature table '{}':\n{}".format(feature_table, line))
 
-    return header, features
+    return header, loci
 
+
+# def parse_features_from_table(feature_table: str) -> (str, list):
+#     header = ""
+#     features = []
+#     with open(feature_table) as ft_handler:
+#         header_line = ft_handler.readline()
+#         if header_line[0] != '>':
+#             exit_gracefully("Error: first line in feature table file isn't formatted properly:\n{}".format(header_line))
+#         else:
+#             header = header_line.strip()
+#         feature_lines = [line.rstrip() for line in ft_handler.readlines()]
+#
+#     line = feature_lines[0]
+#     while line:
+#         features.append(load_lines_to_feature(feature_lines))
+#         try:
+#             line = feature_lines[0]
+#         except IndexError:
+#             break
+#         if line and len(line.split("\t")) != 3:
+#             exit_gracefully("Unexpected line format in feature table '{}':\n{}".format(feature_table, line))
+#
+#     return header, features
 
 def get_feature_length(feature: SeqFeature) -> str:
     return (feature.location.end - feature.location.start) * feature.strand
 
 
-def validate_feature_merge(ref_feature, putative_feature) -> None:
+def get_locus_len(locus: Locus) -> str:
+    return (locus.stop - locus.start) * locus.strand
+
+
+def validate_feature_merge(ref_feature: SeqFeature, putative_feature: SeqFeature) -> None:
     # Check to be sure the strand and type are identical
     if ref_feature.type != putative_feature.type:
         exit_gracefully("SeqFeature type mismatch during merge:\n{}\n{}".format(ref_feature, putative_feature))
@@ -189,29 +264,28 @@ def validate_feature_merge(ref_feature, putative_feature) -> None:
     return
 
 
-def merge_qualifiers_from_feature(ref_feature: SeqFeature, putative_feature: SeqFeature) -> SeqFeature:
-    validate_feature_merge(ref_feature, putative_feature)
-    new_feature = SeqFeature(type=ref_feature.type, location=putative_feature.location, strand=putative_feature.strand)
-    for qual, val in putative_feature.qualifiers.items():
-        # Populate the feature qualifiers, giving priority to the ref_feature values
-        if qual not in ref_feature.qualifiers:
-            new_feature.qualifiers[qual] = val
-        else:
-            new_feature.qualifiers[qual] = ref_feature.qualifiers[qual]
+def merge_features_from_locus(ref_locus: Locus, putative_locus: Locus) -> list:
+    merged_features = []
+    while ref_locus.features and putative_locus.features:
+        ref_feature = ref_locus.features.pop(0)
+        putative_feature = putative_locus.features.pop(0)
+        validate_feature_merge(ref_feature, putative_feature)
+        new_feature = SeqFeature(type=ref_feature.type, location=putative_feature.location, strand=ref_locus.strand)
+        for qual, val in putative_feature.qualifiers.items():
+            # Populate the feature qualifiers, giving priority to the ref_feature values
+            if qual not in ref_feature.qualifiers:
+                new_feature.qualifiers[qual] = val
+            else:
+                new_feature.qualifiers[qual] = ref_feature.qualifiers[qual]
+        merged_features.append(new_feature)
 
-    return new_feature
+    return merged_features
 
 
-def keep_pairs(first_index, second_index) -> (int, int):
-    if first_index % 2 == 0:
-        first_index -= 1
-    if second_index % 2 == 0:
-        second_index -= 1
-
-    if ((first_index-1) + (second_index-1)) % 2 != 0:
-        # An odd number of features will be popped
-        exit_gracefully("Odd number of features will be popped, knocking merge out of sync.")
-    return first_index, second_index
+def adjust_by_modulo(num: int, mod=2) -> int:
+    if num > 0 and num % mod == 0:
+        num -= 1
+    return num
 
 
 def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list_two) -> (list, int, int):
@@ -230,67 +304,65 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     start_one, _ = smith_waterman(feat_two_lens, feat_one_lens)
     start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
 
-    if start_one % 2 == 0 or start_two % 2 == 0:
-        start_one, start_two = keep_pairs(start_one, start_two)
-
     if start_one > 0:
         while start_one > 0:
-            skipped_features += seq_feature_to_string(feat_list_one.pop(0)) + "\n"
+            skipped_features += locus_features_to_string(feat_list_one.pop(0)) + "\n"
             feat_one_lens.pop(0)
             start_one -= 1
 
     if start_two > 0:
         while start_two > 0:
-            updated_features.append(feat_list_two.pop(0))
+            skipped_locus = feat_list_two.pop(0)  # type: Locus
+            for seq_feature in skipped_locus.features:
+                updated_features.append(seq_feature)
             feat_two_lens.pop(0)
             start_two -= 1
 
     if skipped_features:
         print("Reference feature(s) skipped:\n", skipped_features)
 
-    if len(feat_list_one) % 2 == 0 or len(feat_list_two) % 2 == 0:
-        exit_gracefully("Odd number of features in feature list detected. Lists are out of sync.")
-
-    return updated_features, feat_one_lens.pop(0), feat_two_lens.pop(0)
+    return updated_features, feat_one_lens.pop(), feat_two_lens.pop()
 
 
-def reconcile_feature_lists(feat_list_one: list, feat_list_two: list) -> list:
+def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
     """
     With feat_list_one representing the current reference features (i.e. those with the identifiers to be maintained)
     find the overlapping features, by adding missing qualifiers from feat_list_two and augmenting the former reference
     set with new features from feat_list_two.
 
-    :param feat_list_one: The reference list of features
-    :param feat_list_two:
+    :param locus_list_one: The reference list of Locus instances, containing their corresponding SeqFeature instances
+    :param locus_list_two:
      Used to prevent redundant locus identifiers by adding to the existing 'locus_id' not present in reference features.
     :return: A list of SeqFeature instances
     """
     updated_features = []
     # Determine the orientation of the two feature lists by comparing the lengths of their features
 
-    feat_one_lens = [get_feature_length(f) for f in feat_list_one]
-    feat_two_lens = [get_feature_length(f) for f in feat_list_two]
-    desired_features = len(feat_list_two)
+    feat_one_lens = [get_locus_len(f) for f in locus_list_one]
+    feat_two_lens = [get_locus_len(f) for f in locus_list_two]
+    desired_features = sum([l.n_features() for l in locus_list_two])
 
     ref_len = feat_one_lens.pop(0)
     new_len = feat_two_lens.pop(0)
     while feat_one_lens and feat_two_lens:
         # Ensure the feature lengths are similar between the old and reference features, ORF discrepancies are abundant
         if abs(ref_len - new_len) > 50:
+            feat_one_lens = [ref_len] + feat_one_lens
+            feat_two_lens = [new_len] + feat_two_lens
             while ref_len != new_len:
                 skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
-                                                                           feat_list_one, feat_list_two)
+                                                                           locus_list_one, locus_list_two)
                 updated_features += skipped_features
         else:
             ref_len = feat_one_lens.pop(0)
             new_len = feat_two_lens.pop(0)
-        updated_features.append(merge_qualifiers_from_feature(feat_list_one.pop(0), feat_list_two.pop(0)))
+        updated_features += merge_features_from_locus(locus_list_one.pop(0), locus_list_two.pop(0))
 
     # Ensure all features remaining are removed from both feature lists
-    while feat_list_one:
-        print("Reference sequence feature skipped:\n{}".format(seq_feature_to_string(feat_list_one.pop(0))))
-    while feat_list_two:
-        updated_features.append(feat_list_two.pop(0))
+    while locus_list_one:
+        print("Reference sequence feature skipped:\n{}".format(locus_features_to_string(locus_list_one.pop(0))))
+    while locus_list_two:
+        updated_features.append(locus_list_two.pop(0))
 
     # Test the difference between the original number of features and the updated number
     if len(updated_features) != desired_features:
@@ -316,6 +388,13 @@ def seq_feature_to_string(seq_feature: SeqFeature) -> str:
             feature_str += "\t\t\t{}\t{}\n".format(qual, seq_feature.qualifiers[qual])
         except KeyError:
             continue
+    return feature_str
+
+
+def locus_features_to_string(locus: Locus) -> str:
+    feature_str = ""
+    for seq_feature in locus.features:  # type: SeqFeature
+        feature_str += seq_feature_to_string(seq_feature)
     return feature_str
 
 
@@ -353,32 +432,47 @@ def write_feature_table(output_ft: str, header: str, feature_list: list) -> None
     return
 
 
-def count_loci(seq_features: list, sep='_') -> int:
+def count_loci(loci: list, sep='_') -> int:
+    """
+    When merging two feature tables, the majority of the features will be common between them.
+    However, there may be some features that are not shared between them and if they are only present in the newer table
+    they will need to be assigned new identifiers.
+
+    This function parses the original feature table (any, really but the original is the one that should be passed in)
+    and determines the maximum feature table value (i.e. the last feature's number).
+    When new features are encountered, their identifiers will begin incrementing from this number.
+
+    :param loci: A list of Locus instances
+    :param sep: A character separating the feature table's prefix string and the feature's unique numeric identifier
+    in the SeqFeature.id attribute.
+    :return: An integer value representing the last feature
+    """
     acc = 0
     num = 0
-    for seq_feat in seq_features:  # type: SeqFeature
-        if not seq_feat.id:
-            continue
-        # Split the locus_id into it's component parts
-        parts = seq_feat.id.split(sep)
-        try:
-            num = int(parts[-1])
-        except TypeError:
-            exit_gracefully("Error: Unexpected format of locus identifier ({}). "
-                            "Last element assumed to be an integer.".format(seq_feat))
-        if num > acc:
-            acc = num
+    for locus in loci:  # type: Locus
+        for seq_feat in locus.features:  # type: SeqFeature
+            if not seq_feat.id:
+                continue
+            # Split the locus_id into it's component parts
+            parts = seq_feat.id.split(sep)
+            try:
+                num = int(parts[-1])
+            except TypeError:
+                exit_gracefully("Error: Unexpected format of locus identifier ({}). "
+                                "Last element assumed to be an integer.".format(seq_feat))
+            if num > acc:
+                acc = num
     return acc
 
 
 def main(sys_args):
     args = get_arg_parser(sys_args)
 
-    ref_head, ref_features = parse_features_from_table(args.ft_ref)
-    locus_acc_offset = count_loci(ref_features)
-    two_head, two_features = parse_features_from_table(args.ft_two)
+    ref_head, ref_loci = parse_loci_from_table(args.ft_ref)
+    locus_acc_offset = count_loci(ref_loci)
+    _, two_loci = parse_loci_from_table(args.ft_two)
 
-    updated_features = reconcile_feature_lists(ref_features, two_features)
+    updated_features = reconcile_feature_lists(ref_loci, two_loci)
 
     if args.prefix:
         fix_feature_tags(updated_features, args.prefix, locus_acc_offset)
