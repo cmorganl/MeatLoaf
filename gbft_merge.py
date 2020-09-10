@@ -7,7 +7,7 @@ import unittest
 
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
-_DIST_THRESHOLD = 50
+_DIST_THRESHOLD = 30
 
 
 class GBFTTestClass(unittest.TestCase):
@@ -282,6 +282,8 @@ def align_start_positions(feat_one_lens, feat_two_lens, feat_list_one, feat_list
     start_two, _ = smith_waterman(feat_one_lens, feat_two_lens)
 
     while start_one or start_two:
+        if abs_dist(feat_one_lens[0], feat_two_lens[0]) < _DIST_THRESHOLD:
+            break
         if start_one > 0:
             skipped_locus = feat_list_one.pop(0)
             skipped_features += locus_features_to_string(skipped_locus) + "\n"
@@ -325,10 +327,9 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
         if abs_dist(ref_len, new_len) > _DIST_THRESHOLD:
             feat_one_lens = [ref_len] + feat_one_lens
             feat_two_lens = [new_len] + feat_two_lens
-            while ref_len != new_len:
-                skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
-                                                                           locus_list_one, locus_list_two)
-                updated_features += skipped_features
+            skipped_features, ref_len, new_len = align_start_positions(feat_one_lens, feat_two_lens,
+                                                                       locus_list_one, locus_list_two)
+            updated_features += skipped_features
         updated_features += merge_features_from_locus(locus_list_one.pop(0), locus_list_two.pop(0))
 
     # Ensure all features remaining are removed from both feature lists
@@ -340,7 +341,7 @@ def reconcile_feature_lists(locus_list_one: list, locus_list_two: list) -> list:
     # Test the difference between the original number of features and the updated number
     if len(updated_features) != desired_features:
         exit_gracefully("Number of updated features ({}) is different from the number of new features ({})."
-                        "".format(len(updated_features), len(feat_two_lens)))
+                        "".format(len(updated_features), desired_features))
 
     return updated_features
 
