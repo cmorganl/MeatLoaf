@@ -14,7 +14,7 @@ from pyfastxcli import fastx_format_check
 __MAX_BUFFER_LEN = 1E6
 
 
-class MyTestCase(unittest.TestCase):
+class ReadLevelerTester(unittest.TestCase):
     def setUp(self) -> None:
         self.fq = Fastq(file_name="test_data/test_TarA.1.fq", build_index=False)
         self.ont = Fastq(file_name="test_data/ZCS_1K.fq", build_index=False)
@@ -52,8 +52,12 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual("test_data/test_TarA.1_levelled.fq", test_fh.name)
         return
 
+    def test_leveler_main(self):
+        # leveler_main("-f mix1200.fq -l 1000 -o mix1200.leveled.fq".split())
+        return
 
-def get_options():
+
+def get_options(sys_args):
     parser = argparse.ArgumentParser(add_help=False)
     required_args = parser.add_argument_group("Required arguments")
     required_args.add_argument("-f", "--fastx", dest="fastx",
@@ -81,7 +85,7 @@ def get_options():
                                     action="help",
                                     help="show this help message and exit")
 
-    args = parser.parse_args()
+    args = parser.parse_args(sys_args)
 
     return args
 
@@ -199,8 +203,8 @@ def get_fastx(fastx_file) -> (str, str):
     return fx, ext
 
 
-def main():
-    args = get_options()
+def leveler_main(sys_args):
+    args = get_options(sys_args)
     fx, ext = get_fastx(args.fastx)
     fh = prep_output(fastx_file=args.fastx, output_fastx=args.output, extension=ext, gzipped=fx.is_gzip)
 
@@ -216,4 +220,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    leveler_main(sys.argv[1:])
