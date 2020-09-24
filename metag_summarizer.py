@@ -188,10 +188,22 @@ def read_lines_to_dict(file_path: str, sep="\t") -> dict:
             logging.error("Unable to load line in {} because number of tab-separated fields was not two:\n{}\n."
                           "".format(file_path, line))
             sys.exit(3)
-        taxa_proportions[taxon] = abund
+        try:
+            taxa_proportions[taxon] = float(abund)
+        except TypeError:
+            logging.error("Unable to convert second column ('{}') to float.\n".format(abund))
+            sys.exit(5)
+
     taxa_file.close()
 
     return taxa_proportions
+
+
+def validate_proportions(taxa_props: dict) -> None:
+    total_proportion = sum([abund for taxon, abund in taxa_props.items()])
+    if total_proportion >= 1.01:
+        logging.warning("Sum of proportional abundances ({}) exceeds 1.\n".format(total_proportion))
+    return
 
 
 def guess_tbl_format(tbl_path: str) -> str:
@@ -356,7 +368,7 @@ def calc_abundance_distance(taxonomic_classifications: dict, taxa_abunds: dict, 
 
     dist = np.linalg.norm(true_abunds-estimated_abunds)
 
-    logging.info("Euclidean distance between true and estimated abundance = {}\n".format(dist))
+    logging.info("Euclidean distance between true and estimated abundance = {:.3f}\n".format(dist))
 
     return taxon_proportions
 
@@ -368,6 +380,7 @@ def metag_roc(sys_args):
     # Read the inputs
     num_queries = get_num_fastx_records(args.fastx)
     positive_taxa = read_lines_to_dict(args.p_names)
+    validate_proportions(positive_taxa)
     taxa_map = get_classifications(args.c_tbl, "bracken")
 
     # Perform ROC analysis and plot

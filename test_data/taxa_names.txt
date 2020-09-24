@@ -6,5 +6,5 @@ Salmonella enterica	0.12
 Lactobacillus fermentum	0.12
 Enterococcus faecalis	0.12
 Staphylococcus aureus	0.12
-Saccharomyces cerevisiae	0.12
-Cryptococcus neoformans	0.12
+Saccharomyces cerevisiae	0.02
+Cryptococcus neoformans	0.02
