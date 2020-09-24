@@ -12,13 +12,6 @@ import matplotlib.pyplot as plt
 from pyfastx import Fasta, Fastq
 from pyfastxcli import fastx_format_check
 
-# from sklearn import svm, datasets
-# from sklearn.metrics import roc_curve, auc
-# from sklearn.model_selection import train_test_split
-# from sklearn.preprocessing import label_binarize
-# from sklearn.multiclass import OneVsRestClassifier
-# from sklearn.metrics import roc_auc_score
-
 
 class MetagenomeROCTester(unittest.TestCase):
     def setUp(self) -> None:
@@ -26,6 +19,7 @@ class MetagenomeROCTester(unittest.TestCase):
         self.positive_taxa = os.path.join("test_data", "taxa_names.txt")
         self.test_fq = os.path.join("test_data", "test_TarA.1.fq")
         self.taxa_abund = {"Salmonella enterica": 1000, "Staphylococcus aureus": 500, "Pseudomonas": 500}
+        self.taxa_proportions = {"Salmonella enterica": 0.6, "Pseudomonas": 0.2}
         return
 
     def test_read_bracken_classifications(self):
@@ -35,7 +29,7 @@ class MetagenomeROCTester(unittest.TestCase):
         return
 
     def test_read_lines_to_set(self):
-        species = read_lines_to_set(self.positive_taxa)
+        species = read_lines_to_dict(self.positive_taxa)
         self.assertEqual(10, len(species))
         return
 
@@ -47,6 +41,14 @@ class MetagenomeROCTester(unittest.TestCase):
         tp, fp, tn, fn = bin_classes(taxa_abund=self.taxa_abund, total_queries=3000,
                                      positives={"Salmonella enterica", "Pseudomonas"})
         self.assertEqual(1500, tp)
+
+    def test_calc_abundance_distance(self):
+        calc_abundance_distance(self.taxa_abund, self.taxa_proportions, num_queries=2500)
+        return
+
+    def test_metag_summarizer(self):
+        metag_roc(" -p test_data/taxa_names.txt -i test_data/ZCS_1K.fq -c test_data/ZCS100k_levelled.bracken".split())
+        return
 
 
 class MyFormatter(logging.Formatter):
@@ -148,7 +150,7 @@ def get_options(sys_args):
     req_args.add_argument("-c", "--classification_tbl", dest="c_tbl", required=True,
                           help="Path to a classification table")
     req_args.add_argument("-p", "--positive_names", dest="p_names", required=True,
-                          help="Path to a file listing the names of true positive organism names -"
+                          help="Path to a file listing the name and abundance of true positive organisms -"
                                " one line per organism")
     req_args.add_argument("-i", "--fastx_file", dest="fastx", required=True,
                           help="Path to the FASTA or FASTQ file containing the classified sequences")
@@ -169,8 +171,8 @@ def get_options(sys_args):
     return args
 
 
-def read_lines_to_set(file_path: str) -> set:
-    taxa = set()
+def read_lines_to_dict(file_path: str, sep="\t") -> dict:
+    taxa_proportions = {}
     try:
         taxa_file = open(file_path, 'r')
     except IOError:
@@ -180,10 +182,16 @@ def read_lines_to_set(file_path: str) -> set:
     for line in taxa_file:
         if not line:
             continue
-        taxa.add(line.strip())
+        try:
+            taxon, abund = line.strip().split(sep)
+        except ValueError:
+            logging.error("Unable to load line in {} because number of tab-separated fields was not two:\n{}\n."
+                          "".format(file_path, line))
+            sys.exit(3)
+        taxa_proportions[taxon] = abund
     taxa_file.close()
 
-    return taxa
+    return taxa_proportions
 
 
 def guess_tbl_format(tbl_path: str) -> str:
@@ -203,6 +211,15 @@ def read_bracken_classifications(bracken_table: str) -> dict:
 
 
 def get_classifications(tbl_path: str, tbl_format=None) -> dict:
+    """
+    Reads variety of classification tables from different software (okay, right now it's just Bracken...) and
+    returns a dictionary mapping the number of sequences classified as each taxon.
+
+    :param tbl_path: Path to a classification table
+    :param tbl_format: Format of the classification table, if known beforehand. Otherwise, the format of the table i.e.
+     the software that generated it is automatically determined
+    :return: A dictionary mapping taxon names to their respective number of classifications
+    """
     logging.info("Reading classifications from '{}'... ".format(tbl_path))
     # TODO: Determine the file format is none was provided
     if tbl_format is None:
@@ -321,18 +338,43 @@ def plot_roc(tpr: np.array, fpr: np.array, roc_auc: np.array, fig_name: str) -> 
     return
 
 
+def calc_abundance_distance(taxonomic_classifications: dict, taxa_abunds: dict, num_queries: int) -> dict:
+    taxon_proportions = {}
+    missing_taxa = []
+    for taxon in sorted(taxa_abunds):
+        if taxon not in taxonomic_classifications:
+            missing_taxa.append(taxon)
+
+    if len(missing_taxa) >= 1:
+        logging.info("{} taxa provided as true positives were not found in the classifications.\n")
+        logging.debug("Missing taxa: {}\n".format(', '.join(missing_taxa)))
+        while missing_taxa:
+            taxa_abunds.pop(k=missing_taxa.pop())
+
+    true_abunds = np.array([float(taxa_abunds[taxon]) for taxon in sorted(taxa_abunds)])
+    estimated_abunds = np.array([taxonomic_classifications[taxon] for taxon in sorted(taxa_abunds)]) / num_queries
+
+    dist = np.linalg.norm(true_abunds-estimated_abunds)
+
+    logging.info("Euclidean distance between true and estimated abundance = {}\n".format(dist))
+
+    return taxon_proportions
+
+
 def metag_roc(sys_args):
     args = get_options(sys_args)
 
-    prep_logging("./roc_log.txt", verbosity=args.verbose)
+    prep_logging("./summarizer_log.txt", verbosity=args.verbose)
     # Read the inputs
     num_queries = get_num_fastx_records(args.fastx)
-    positive_taxa = read_lines_to_set(args.p_names)
+    positive_taxa = read_lines_to_dict(args.p_names)
     taxa_map = get_classifications(args.c_tbl, "bracken")
 
     # Perform ROC analysis and plot
-    tp, tn, fp, fn = bin_classes(taxa_map, positive_taxa, num_queries)
+    tp, tn, fp, fn = bin_classes(taxa_map, set(positive_taxa.keys()), num_queries)
     classification_measures_summary(tp=tp, fp=fp, fn=fn)
+
+    calc_abundance_distance(taxa_map, positive_taxa, num_queries)
 
     return
 
