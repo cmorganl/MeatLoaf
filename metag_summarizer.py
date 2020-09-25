@@ -163,8 +163,8 @@ def get_options(sys_args):
 
     opt_args.add_argument('-o', '--output', default='summary.tsv', required=False,
                           help="File path to write the classification performance table [ DEFAULT = 'summary.tsv' ]")
-    # opt_args.add_argument('-r', "--tax_rank", default="species", required=False,
-    #                       help="The taxonomic rank threshold for correct classifications. [ DEFAULT = 'species' ]")
+    opt_args.add_argument('-r', "--tax_rank", default='S', required=False, choices=['P', 'C', 'O', 'F', 'G', 'S', 'S1'],
+                          help="The taxonomic rank threshold for correct classifications. [ DEFAULT = 'S' ]")
 
     mis_args.add_argument('--overwrite', action='store_true', default=False,
                           help='overwrites previously processed output folders')
@@ -213,22 +213,40 @@ def validate_proportions(taxa_props: dict) -> None:
 
 
 def guess_tbl_format(tbl_path: str) -> str:
-    tbl_format = ""
-    return tbl_format
+    bracken_header = ["name", "taxonomy_id", "taxonomy_lvl", "kraken_assigned_reads",
+                      "added_reads", "new_est_reads", "fraction_total_reads"]
+
+    taste = open(tbl_path).readline().strip()
+    fields = taste.split("\t")
+    if taste == "\t".join(bracken_header):
+        return "bracken"
+    elif len(fields) == 6 or "unclassified" in fields:
+        return "kraken"
+    else:
+        logging.error("Unable to recognize the format of the classification table '{}'.\n".format(tbl_path))
+        sys.exit(11)
+
+
+def read_kraken_report(kreport_file: str, rank: str) -> dict:
+    taxa_read_map = {}
+    with open(kreport_file) as tbl:
+        for row in tbl:  # type: str
+            cols = row.split("\t")
+            if cols[3] == rank:
+                taxa_read_map[cols[-1].strip()] = int(cols[2])
+    return taxa_read_map
 
 
 def read_bracken_classifications(bracken_table: str) -> dict:
-    # header = ["name", "taxonomy_id", "taxonomy_lvl",
-    #           "kraken_assigned_reads", "added_reads", "new_est_reads", "fraction_total_reads"]
     taxa_read_map = {}
     with open(bracken_table) as tbl:
         reader = csv.DictReader(tbl, delimiter="\t")
-        for row in reader:
+        for row in reader:  # type: dict
             taxa_read_map[row["name"]] = int(row["new_est_reads"])
     return taxa_read_map
 
 
-def get_classifications(tbl_path: str, tbl_format=None) -> dict:
+def get_classifications(tbl_path: str, k_rank: str, tbl_format=None) -> dict:
     """
     Reads variety of classification tables from different software (okay, right now it's just Bracken...) and
     returns a dictionary mapping the number of sequences classified as each taxon.
@@ -236,6 +254,8 @@ def get_classifications(tbl_path: str, tbl_format=None) -> dict:
     :param tbl_path: Path to a classification table
     :param tbl_format: Format of the classification table, if known beforehand. Otherwise, the format of the table i.e.
      the software that generated it is automatically determined
+    :param k_rank: The taxonomic rank that will be used for classifications.
+     Some tools return classifications at multiple ranks and this is for narrowing this to a single rank.
     :return: A dictionary mapping taxon names to their respective number of classifications
     """
     logging.info("Reading classifications from '{}'... ".format(tbl_path))
@@ -244,6 +264,8 @@ def get_classifications(tbl_path: str, tbl_format=None) -> dict:
         tbl_format = guess_tbl_format(tbl_path)
     if tbl_format == "bracken":
         taxa_map = read_bracken_classifications(tbl_path)
+    elif tbl_format == "kraken":
+        taxa_map = read_kraken_report(tbl_path, k_rank)
     else:
         logging.error("Unable to read file format '{}'. Exiting.\n")
         sys.exit(3)
@@ -381,7 +403,7 @@ def metag_roc(sys_args):
     analyzed_samples = []
     for tbl in args.c_tbl:
         tbl_name, _ = os.path.splitext(os.path.basename(tbl))
-        taxa_map = get_classifications(tbl, "bracken")
+        taxa_map = get_classifications(tbl, args.tax_rank)
 
         # Perform ROC analysis and plot
         positive_taxa = set(positive_taxa_abunds.keys())
