@@ -6,9 +6,11 @@ import unittest
 import sys
 import logging
 import argparse
+from collections import namedtuple
 
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
+
 from pyfastx import Fasta, Fastq
 from pyfastxcli import fastx_format_check
 
@@ -43,12 +45,16 @@ class MetagenomeROCTester(unittest.TestCase):
         self.assertEqual(1500, tp)
 
     def test_calc_abundance_distance(self):
-        calc_abundance_distance(self.taxa_abund, self.taxa_proportions, num_queries=2500)
+        calc_abundance_distance(self.taxa_abund, self.taxa_proportions,
+                                shared_keys={"Salmonella enterica", "Pseudomonas"})
         return
 
     def test_metag_summarizer(self):
         metag_roc(" -p test_data/taxa_names.txt -i test_data/ZCS_1K.fq -c test_data/ZCS100k_levelled.bracken".split())
         return
+
+
+metrics = namedtuple("metrics", ["sample", "tp", "fp", "tn", "fn", "euc_dist"])
 
 
 class MyFormatter(logging.Formatter):
@@ -139,15 +145,15 @@ def prep_logging(log_file_name=None, verbosity=False) -> None:
 
 
 def get_options(sys_args):
-    parser = argparse.ArgumentParser(description="A script for generating Receiver Operating Characteristic (ROC)"
-                                                 " curves from metagenome taxonomic classifications.",
+    parser = argparse.ArgumentParser(description="A script for evaluating taxonomic classifications of metagenomes by "
+                                                 " Kraken, Bracken, and MetaMaps.",
                                      add_help=False)
 
     req_args = parser.add_argument_group("Required arguments")
     opt_args = parser.add_argument_group("Optional arguments")
     mis_args = parser.add_argument_group("Miscellaneous arguments")
 
-    req_args.add_argument("-c", "--classification_tbl", dest="c_tbl", required=True,
+    req_args.add_argument("-c", "--classification_tbl", dest="c_tbl", required=True, nargs='+',
                           help="Path to a classification table")
     req_args.add_argument("-p", "--positive_names", dest="p_names", required=True,
                           help="Path to a file listing the name and abundance of true positive organisms -"
@@ -155,10 +161,10 @@ def get_options(sys_args):
     req_args.add_argument("-i", "--fastx_file", dest="fastx", required=True,
                           help="Path to the FASTA or FASTQ file containing the classified sequences")
 
-    opt_args.add_argument('-o', '--output', default='', required=False,
-                          help='The output [ DEFAULT =  ]')
-    opt_args.add_argument('-r', "--tax_rank", default="species", required=False,
-                          help="The taxonomic rank threshold for correct classifications. [ DEFAULT = 'species' ]")
+    opt_args.add_argument('-o', '--output', default='summary.tsv', required=False,
+                          help="File path to write the classification performance table [ DEFAULT = 'summary.tsv' ]")
+    # opt_args.add_argument('-r', "--tax_rank", default="species", required=False,
+    #                       help="The taxonomic rank threshold for correct classifications. [ DEFAULT = 'species' ]")
 
     mis_args.add_argument('--overwrite', action='store_true', default=False,
                           help='overwrites previously processed output folders')
@@ -303,91 +309,98 @@ def margin_calc(chars: int, margin_size=40):
     return " "*(margin_size - chars)
 
 
-def classification_measures_summary(tp, fp, tn=0, fn=0) -> None:
+def classification_measures_summary(tp, fp, fn):
     tpr = float(tp/(tp + fn))
     ppv = float(tp/(tp + fp))
-    tpr_str = "True positive rate (TPR)"
-    fnr_str = "False negative rate (FNR)"
-    ppv_str = "Positive predictive value (PPV)"
-    fdr_str = "False discovery rate (FDR)"
-    f1_str = "F1-score"
-    summary_str = "{}{}{:.3f}\n".format(tpr_str, margin_calc(len(tpr_str)), tpr) + \
-                  "{}{}{:.3f}\n".format(fnr_str, margin_calc(len(fnr_str)), 1-tpr) + \
-                  "{}{}{:.3f}\n".format(ppv_str, margin_calc(len(ppv_str)), ppv) + \
-                  "{}{}{:.3f}\n".format(fdr_str, margin_calc(len(fdr_str)), 1-ppv) + \
-                  "{}{}{:.3f}\n".format(f1_str, margin_calc(len(f1_str)), 2*(ppv*tpr)/(ppv+tpr))
-    logging.info(summary_str)
-    return
+
+    return tpr, tpr-1, ppv, ppv-1, 2 * (ppv * tpr) / (ppv + tpr)
 
 
-# def format_roc(y_true: np.array, y_counts: np.array) -> (np.array, np.array, np.array):
-#     """
-#     :type y_true : array, shape = [n_samples]
-#     :param y_true: True binary labels. Labels should be either either {-1, 1} or {0, 1}
-#     :param y_counts:
-#     :return:
-#     """
-#     # Compute ROC curve and ROC area for each class
-#     fpr, tpr, _ = roc_curve(y_test, y_counts)
-#     roc_auc = auc(fpr, tpr)
-#
-#     return tpr, fpr, roc_auc
-
-
-def plot_roc(tpr: np.array, fpr: np.array, roc_auc: np.array, fig_name: str) -> None:
-    plt.figure()
-    lw = 2
-    plt.plot(fpr, tpr, color='darkorange',
-             lw=lw, label='ROC curve (area = %0.2f)' % roc_auc[2])
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver operating characteristic example')
-    plt.legend(loc="lower right")
-    plt.show()
-    return
-
-
-def calc_abundance_distance(taxonomic_classifications: dict, taxa_abunds: dict, num_queries: int) -> dict:
+def find_positive_proportions(taxonomic_classifications: dict, denom=1) -> dict:
     taxon_proportions = {}
-    missing_taxa = []
-    for taxon in sorted(taxa_abunds):
-        if taxon not in taxonomic_classifications:
-            missing_taxa.append(taxon)
+    for taxon, seqs in taxonomic_classifications.items():
+        taxon_proportions[taxon] = seqs/denom
 
-    if len(missing_taxa) >= 1:
-        logging.info("{} taxa provided as true positives were not found in the classifications.\n")
-        logging.debug("Missing taxa: {}\n".format(', '.join(missing_taxa)))
-        while missing_taxa:
-            taxa_abunds.pop(k=missing_taxa.pop())
+    return taxon_proportions
 
-    true_abunds = np.array([float(taxa_abunds[taxon]) for taxon in sorted(taxa_abunds)])
-    estimated_abunds = np.array([taxonomic_classifications[taxon] for taxon in sorted(taxa_abunds)]) / num_queries
+
+def calc_abundance_distance(taxon_props: dict, true_props: dict, shared_keys: set) -> float:
+    estimated_abunds = np.array([float(taxon_props[taxon]) for taxon in sorted(shared_keys)])
+    true_abunds = np.array([float(true_props[taxon]) for taxon in sorted(shared_keys)])
 
     dist = np.linalg.norm(true_abunds-estimated_abunds)
 
-    logging.info("Euclidean distance between true and estimated abundance = {:.3f}\n".format(dist))
+    logging.debug("Euclidean distance between true and estimated abundance = {:.3f}\n".format(dist))
 
-    return taxon_proportions
+    return dist
+
+
+def write_performance_table(metric_instances: list, output_path: str, sep="\t") -> None:
+    header = "\t".join(["Sample", "F1-score", "Euclidean distance",
+                        "True positive rate (TPR)", "False negative rate (FNR)",
+                        "Positive predictive value (PPV)", "False discovery rate (FDR)"]) + "\n"
+
+    try:
+        output_handler = open(output_path, 'w')
+    except IOError:
+        logging.error("Unable to open output file '{}' for writing.\n")
+        sys.exit(7)
+
+    output_handler.write(header)
+
+    for stats in metric_instances:  # type: metrics
+        tpr, fnr, ppv, fdr, f1 = classification_measures_summary(tp=stats.tp, fp=stats.fp, fn=stats.fn)
+        output_handler.write(stats.sample + sep +
+                             sep.join([str(round(i, 3)) for i in
+                                       [f1, stats.euc_dist, tpr, fnr, ppv, fdr]]) +
+                             "\n")
+
+    output_handler.close()
+
+    return
 
 
 def metag_roc(sys_args):
     args = get_options(sys_args)
 
     prep_logging("./summarizer_log.txt", verbosity=args.verbose)
+
+    if os.path.isfile(args.output):
+        if args.overwrite:
+            os.remove(args.output)
+        else:
+            logging.error("Output '{}' already exists and will not be overwritten unless --overwrite is used.\n"
+                          "".format(args.output))
+            sys.exit(9)
+
     # Read the inputs
     num_queries = get_num_fastx_records(args.fastx)
-    positive_taxa = read_lines_to_dict(args.p_names)
-    validate_proportions(positive_taxa)
-    taxa_map = get_classifications(args.c_tbl, "bracken")
+    positive_taxa_abunds = read_lines_to_dict(args.p_names)
+    validate_proportions(positive_taxa_abunds)
 
-    # Perform ROC analysis and plot
-    tp, tn, fp, fn = bin_classes(taxa_map, set(positive_taxa.keys()), num_queries)
-    classification_measures_summary(tp=tp, fp=fp, fn=fn)
+    analyzed_samples = []
+    for tbl in args.c_tbl:
+        tbl_name, _ = os.path.splitext(os.path.basename(tbl))
+        taxa_map = get_classifications(tbl, "bracken")
 
-    calc_abundance_distance(taxa_map, positive_taxa, num_queries)
+        # Perform ROC analysis and plot
+        positive_taxa = set(positive_taxa_abunds.keys())
+        tp, tn, fp, fn = bin_classes(taxa_map, positive_taxa, num_queries)
+
+        missing_taxa = positive_taxa.difference(set(taxa_map.keys()))
+        shared_taxa = positive_taxa.intersection(set(taxa_map.keys()))
+
+        if len(missing_taxa) >= 1:
+            logging.info("{} taxa provided as true positives were not found in {}.\n".format(len(missing_taxa), tbl))
+            logging.debug("Missing taxa: {}\n".format(', '.join(missing_taxa)))
+
+        taxa_props = find_positive_proportions(taxa_map, denom=num_queries)
+        l1 = calc_abundance_distance(taxa_props, positive_taxa_abunds, shared_taxa)
+
+        analyzed_samples.append(metrics(sample=tbl_name, tp=tp, fp=fp, fn=fn, tn=tn, euc_dist=l1))
+
+    # Write a table with the classification metric values for each sample
+    write_performance_table(analyzed_samples, args.output)
 
     return
 
