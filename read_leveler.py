@@ -213,7 +213,12 @@ def leveler_main(sys_args):
         level_fasta(fx, fh, args.read_length, args.num, args.lim_t)
     elif type(fx) is Fastq:
         level_fastq(fx, fh, args.read_length, args.num, args.lim_t)
-    fh.close()
+
+    try:
+        fh.close()
+    except OSError:
+        logging.error("Unable to close file '{}' after writing.\n".format(args.output))
+
     end = time()
     logging.debug("{} completed levelling in {}s.\n".format(args.fastx, end - start))
     return
