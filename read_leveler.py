@@ -18,11 +18,12 @@ class ReadLevelerTester(unittest.TestCase):
     def setUp(self) -> None:
         self.fq = Fastq(file_name="test_data/test_TarA.1.fq", build_index=False)
         self.ont = Fastq(file_name="test_data/ZCS_1K.fq", build_index=False)
-        self.output = open(file="test_data/tmp.txt", mode='w')
+        self.output = "test_data/tmp.txt"
         return
 
     def tearDown(self) -> None:
-        self.output.close()
+        if os.path.isfile(self.output):
+            os.remove(self.output)
         return
 
     def test_seq_chopper(self):
@@ -34,22 +35,27 @@ class ReadLevelerTester(unittest.TestCase):
         return
 
     def test_level_fastq(self):
-        ont_subseqs = level_fastq(self.ont, self.output, 1000)
-        ilmn_subseqs = level_fastq(self.fq, self.output, 50)
+        with open(file=self.output, mode='w') as tmp_out_fh:
+            ont_subseqs = level_fastq(self.ont, tmp_out_fh, 1000)
+        with open(file=self.output, mode='w') as tmp_out_fh:
+            ilmn_subseqs = level_fastq(self.fq, tmp_out_fh, 50)
         self.assertEqual(36, ilmn_subseqs)
-        return
 
-    def test_max_seq_level_fastq(self):
-        ilmn_subseqs = level_fastq(self.fq, self.output, seq_len=50, num=30, num_type='s')
+        # Test with a maximum sequence number limit
+        with open(file=self.output, mode='w') as tmp_out_fh:
+            ilmn_subseqs = level_fastq(self.fq, tmp_out_fh, seq_len=50, num=30, num_type='s')
         self.assertEqual(30, ilmn_subseqs)
 
-    def test_max_char_level_fastq(self):
-        ilmn_subseqs = level_fastq(self.fq, self.output, seq_len=50, num=100, num_type='c')
+        # Test with a maximum character limit
+        with open(file=self.output, mode='w') as tmp_out_fh:
+            ilmn_subseqs = level_fastq(self.fq, tmp_out_fh, seq_len=50, num=100, num_type='c')
         self.assertEqual(2, ilmn_subseqs)
+        return
 
     def test_prep_output(self):
         test_fh = prep_output(fastx_file="test_data/test_TarA.1.fq", output_fastx='', extension="fq")
         self.assertEqual("test_data/test_TarA.1_levelled.fq", test_fh.name)
+        test_fh.close()
         return
 
     def test_leveler_main(self):
@@ -116,6 +122,11 @@ def level_fasta(fa, out_fh, seq_len: int, num=0, num_type='s') -> int:
             out_fh.write(buff)
             buff = ""
     out_fh.write(buff)
+
+    try:
+        out_fh.close()
+    except OSError:
+        logging.warning("Unable to close file '{}' after writing.\n".format(out_fh.name))
     return n_subseqs
 
 
@@ -148,6 +159,10 @@ def level_fastq(fq, out_fh, seq_len: int, num=0, num_type='s'):
             buff = ""
 
     out_fh.write(buff)
+    try:
+        out_fh.close()
+    except OSError:
+        logging.warning("Unable to close file '{}' after writing.\n".format(out_fh.name))
     return n_subseqs
 
 
@@ -213,11 +228,6 @@ def leveler_main(sys_args):
         level_fasta(fx, fh, args.read_length, args.num, args.lim_t)
     elif type(fx) is Fastq:
         level_fastq(fx, fh, args.read_length, args.num, args.lim_t)
-
-    try:
-        fh.close()
-    except OSError:
-        logging.error("Unable to close file '{}' after writing.\n".format(args.output))
 
     end = time()
     logging.debug("{} completed levelling in {}s.\n".format(args.fastx, end - start))
